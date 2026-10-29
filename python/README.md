@@ -151,6 +151,54 @@ $$d(a, b) = \frac{1}{2} \sqrt{\frac{\sum_{i \in R, j \in K} \bar p_i \bar p_j \l
 NPMI differences lie in $[-2, 2]$, so the factor $\frac{1}{2}$ keeps $d$ in
 $[0, 1]$. The similarity is $1 - d(a, b)$, or 0 if $R$ is empty.
 
+### Benchmarks
+
+How well each metric retrieves samples known to belong together, as mean
+average precision (mAP: 1 means every sample ranks all samples of its group
+above all others). Composition only is a baseline, not a metric option: it
+compares label proportions, ignoring where spots are. Best per row in bold.
+Scripts and data downloads to reproduce these are in
+[`benchmarks/`](https://github.com/george-hall-ucl/friendlyspots/tree/main/python/benchmarks).
+
+| Dataset | Task | Chance | Composition only | `euclidean` | `random_walk` | `npmi_heat` t=4 | `npmi_heat` t=16 |
+|---|---|---|---|---|---|---|---|
+| Synthetic | Arrangement, fixed composition | 0.2 | 0.25 | **0.89** | 0.85 | 0.86 | 0.79 |
+| Synthetic | Arrangement, varied composition | 0.2 | 0.22 | 0.37 | 0.72 | **0.75** | 0.67 |
+| Synthetic | ... + boundary label noise (30%) | 0.2 | 0.23 | 0.37 | 0.71 | **0.74** | 0.68 |
+| Synthetic | ... + random label noise (15%) | 0.2 | 0.23 | 0.37 | 0.44 | 0.64 | **0.65** |
+| Pig esophagus | Time point | 0.40 | 0.61 | 0.59 | 0.59 | **0.63** | 0.61 |
+| Human cortex | Donor | 0.42 | 0.96 | 0.93 | **1.00** | **1.00** | **1.00** |
+| Human cortex | Adjacent section | 0.28 | 0.85 | **0.86** | **0.86** | **0.86** | **0.86** |
+| Human cortex | Donor, random label noise (15%) | 0.42 | 0.95 | 0.94 | 0.97 | **1.00** | **1.00** |
+| Human cortex | Adjacent section, random label noise (15%) | 0.28 | 0.82 | 0.84 | **0.89** | **0.89** | 0.85 |
+| Human cortex | Donor, random label noise (30%) | 0.42 | 0.96 | 0.93 | 0.97 | 0.97 | **0.99** |
+| Human cortex | Adjacent section, random label noise (30%) | 0.28 | **0.85** | 0.84 | **0.85** | **0.85** | 0.84 |
+| Human cortex | Donor, random crops | 0.37 | 0.61 | 0.60 | **0.72** | 0.70 | 0.67 |
+| Human cortex | Section, random crops | 0.13 | 0.29 | 0.30 | **0.39** | 0.33 | 0.31 |
+| Human heart | Patient group | 0.46 | 0.79 | 0.76 | 0.81 | **0.84** | 0.73 |
+
+Synthetic scores are means over 10 random datasets (standard deviations
+0.03-0.08); noise and crop scores are means over 5 random draws.
+
+- **Synthetic**: generated tissue sections of random size, shape and
+  orientation with 4 labels, in 6 arrangements (5 sections each): two layer
+  orders, rings, smooth patches, randomly assigned patches and fully mixed.
+  Composition is either the same for all sections or varies between them, so
+  arrangement can be tested separately from composition.
+- **Pig esophagus**: the 10 sections of the package's test data (Durkin et
+  al. 2026), labelled by cell type: pre-implant, 1, 3 and 6 months after
+  implantation, and native tissue. The task is to retrieve sections of the
+  same time point.
+- **Human cortex**: 12 sections of dorsolateral prefrontal cortex (Maynard et
+  al. 2021) with manual annotations of cortical layers, from 3 donors, cut as
+  pairs of adjacent sections. Also tested with random label noise, and with
+  random crops of ~40% of each section, whose composition depends on where
+  they fall while the layer order stays the same.
+- **Human heart**: 15 sections after myocardial infarction and from controls
+  (Kuppe et al. 2022), labelled by each spot's dominant cell type. The task is
+  to retrieve sections of the same patient group: myogenic (control and
+  remote zone), ischaemic or fibrotic.
+
 ### Example
 
 Uses four mouse brain sections from 10x Genomics (two anterior, two posterior),
