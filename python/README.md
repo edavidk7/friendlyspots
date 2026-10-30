@@ -364,9 +364,11 @@ for name, sample_id in ids.items():
     labels[name] = np.array(markers)[top]
 
 
+palette = ["#CC79A7", "#D55E00", "#0072B2", "#F0E442", "#009E73"]
+colors = dict(zip(sorted(markers), palette))
+
+
 def plot_slices(samples):
-    palette = ["#CC79A7", "#D55E00", "#0072B2", "#F0E442", "#009E73"]
-    colors = dict(zip(sorted(markers), palette))
     fig, axes = plt.subplots(1, len(samples), layout="constrained")
     for ax, (name, df) in zip(axes, samples.items()):
         ax.scatter(
@@ -409,6 +411,33 @@ def plot_similarity(sim):
         ax.invert_yaxis()
         plt.xticks(rotation=45, ha="right")
     plt.show()
+
+
+def plot_smoothing(original, smoothed):
+    versions = {"original": original}
+    versions.update({f"lam = {lam}": df for lam, df in smoothed.items()})
+    fig, axes = plt.subplots(1, len(versions), layout="constrained")
+    for ax, (title, df) in zip(axes, versions.items()):
+        x, y = df["array_col"], -df["array_row"] * np.sqrt(3)
+        ax.scatter(x, y, c=df["label"].map(colors), s=3, linewidths=0)
+        # Circle the spots whose label changed
+        changed = df["label"].to_numpy() != original["label"].to_numpy()
+        ax.scatter(x[changed], y[changed], s=14, facecolors="none",
+                   edgecolors="black", linewidths=0.5)
+        ax.set_title(title)
+        ax.set_aspect("equal")
+        ax.axis("off")
+    handles = [
+        plt.Line2D([], [], marker="o", linestyle="", color=color, label=label)
+        for label, color in colors.items()
+    ]
+    fig.legend(
+        handles=handles,
+        loc="outside lower center",
+        ncol=len(colors),
+        frameon=False,
+    )
+    plt.show()
 ```
 
 </details>
@@ -444,14 +473,35 @@ plot_slices(samples)
 sim = spatial_similarity(samples)
 print(sim.round(2))
 #>              anterior_1  anterior_2  posterior_1  posterior_2
-#> anterior_1         1.00        0.93         0.00         0.01
-#> anterior_2         0.93        1.00         0.03         0.04
-#> posterior_1        0.00        0.03         1.00         0.92
-#> posterior_2        0.01        0.04         0.92         1.00
+#> anterior_1         1.00        0.96         0.01         0.00
+#> anterior_2         0.96        1.00         0.02         0.01
+#> posterior_1        0.01        0.02         1.00         0.93
+#> posterior_2        0.00        0.01         0.93         1.00
 plot_similarity(sim)
 ```
 
 <img src="https://raw.githubusercontent.com/george-hall-ucl/friendlyspots/main/python/figures/README-similarity-3.png" alt="" width="50%" style="display: block; margin: auto;" />
+
+By default, `spatial_similarity()` first relabels isolated spots that are
+likely mislabelled (`smoothing=0.2`, see [Label smoothing](#label-smoothing)).
+`denoise_labels()` shows which spots that changes, circled, and how larger
+values smooth more:
+
+
+``` python
+from friendlyspots import denoise_labels
+
+original = samples["anterior_1"]
+smoothed = {lam: denoise_labels(original, lam=lam) for lam in [0.2, 0.5]}
+for lam, df in smoothed.items():
+    n = (df["label"] != original["label"]).sum()
+    print(f"lam = {lam}: {n} of {len(original)} spots relabelled")
+#> lam = 0.2: 65 of 2695 spots relabelled
+#> lam = 0.5: 386 of 2695 spots relabelled
+plot_smoothing(original, smoothed)
+```
+
+<img src="https://raw.githubusercontent.com/george-hall-ucl/friendlyspots/main/python/figures/README-smoothing-1.png" alt="" width="75%" style="display: block; margin: auto;" />
 
 ## Citation
 
