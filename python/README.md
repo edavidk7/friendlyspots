@@ -36,8 +36,18 @@ samples = {"sample_1": df1, "sample_2": df2, "sample_3": df3}
 sim = spatial_similarity(samples)
 ```
 
-Returns a sample × sample DataFrame with normalised similarity scores: 1 =
-identical, 0 = least similar pair.
+Returns a sample × sample DataFrame of similarity scores from 0 to 1, where 1
+means spatially identical. With the default metric, 0 is the least similar pair
+among the samples compared; other metrics give scores that don't depend on
+which other samples are compared (see `metric` below).
+
+Which metric to use: `metric="spectral"` did best in the
+[benchmarks](#benchmarks), capturing structure beyond direct neighbors while
+being robust to mislabelled spots, and `"random_walk"` is a simpler
+alternative that also discounts how common each label is. The default,
+`"euclidean"`, is kept for compatibility with earlier results, but mostly
+reflects how much of each label samples have rather than how labels are
+arranged.
 
 ### Options
 
