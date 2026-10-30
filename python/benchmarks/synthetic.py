@@ -14,7 +14,8 @@ composition with boundary or random label noise.
 --alternatives also scores features that were tried and not added to the
 package (WL hashes, PPMI, multi-scale walks without NPMI, the spectral gap of
 the label graph, NPMI averaged over several walk lengths, random_walk on
-heat-diffused contacts).
+heat-diffused contacts, and comparing where steps that leave a label land
+together with the probability of staying, on direct or heat-diffused contacts).
 """
 import argparse
 import warnings
@@ -25,7 +26,7 @@ import scipy.sparse as sp
 from scipy.sparse.linalg import expm_multiply
 
 from common import SETTINGS, per_query, similarity, sqrt_js
-from friendlyspots.similarity import _graph, _heat, _random_walk_distance
+from friendlyspots.similarity import _graph, _heat, _js, _random_walk_distance
 
 HEX_OFFSETS = [(0, -2), (0, 2), (-1, -1), (-1, 1), (1, -1), (1, 1)]
 K = 4
@@ -186,6 +187,33 @@ def heat(sample, t):
     return _heat(onehot, a, t)
 
 
+def exit_distance(a, b, stay=True):
+    """Weighted mean sqrt JS between each shared label's exit distribution.
+
+    A label's exit distribution is where a step from one of its spots lands,
+    given that it leaves the label: its row of contacts without the diagonal.
+    With stay, the probability of not leaving is compared too, as a
+    Bernoulli distribution, averaged equally with the exit distance.
+    """
+    stays_a, stays_b = np.diag(a), np.diag(b)
+    out_a, out_b = a.sum(axis=1) - stays_a, b.sum(axis=1) - stays_b
+    shared = (out_a > 0) & (out_b > 0)
+    if not shared.any():
+        return 1.0
+    off_a, off_b = a - np.diag(stays_a), b - np.diag(stays_b)
+    d = _js(off_a[shared] / out_a[shared, None], off_b[shared] / out_b[shared, None])
+    if stay:
+        sa, sb = stays_a[shared] / a.sum(axis=1)[shared], stays_b[shared] / b.sum(axis=1)[shared]
+        d = (d + _js(np.column_stack([sa, 1 - sa]), np.column_stack([sb, 1 - sb]))) / 2
+    weights = (out_a / out_a.sum() + out_b / out_b.sum())[shared] / 2
+    return np.average(d, weights=weights)
+
+
+def contacts(sample):
+    onehot, a = _graph(sample.assign(label=sample["label"].astype(str)), [str(k) for k in range(K)])
+    return (onehot.T @ a @ onehot).toarray()
+
+
 ALTERNATIVES = {
     "WL multiset hash": (lambda s: neighborhood_hashes(s, False), hist_distance),
     "WL set hash": (lambda s: neighborhood_hashes(s, True), hist_distance),
@@ -196,6 +224,8 @@ ALTERNATIVES = {
                                lambda a, b: np.mean([np.sqrt(np.mean((npmi(x) - npmi(y)) ** 2)) for x, y in zip(a, b)])),
     "random_walk on heat t=1": (lambda s: heat(s, 1), _random_walk_distance),
     "random_walk on heat t=4": (lambda s: heat(s, 4), _random_walk_distance),
+    "exit + stay": (contacts, exit_distance),
+    "exit + stay, heat t=4": (lambda s: heat(s, 4), exit_distance),
 }
 
 
@@ -239,7 +269,7 @@ def main():
         print(f"{name:24}" + "".join(
             f"{np.mean(scores[c, name]):>15.2f} ({np.std(scores[c, name]):.2f})" for c in CONDITIONS))
 
-    show = [m for m in ("euclidean (default)", "random_walk", "npmi_heat t=4", "npmi_heat t=16") if m in methods]
+    show = [m for m in ("euclidean (default)", "random_walk", "npmi_heat t=4", "spectral") if m in methods]
     print("\nper-class mAP, varied composition")
     print(f"{'class':16}" + "".join(f"{m:>22}" for m in show))
     for cls in CLASSES:

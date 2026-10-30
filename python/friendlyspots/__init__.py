@@ -1,3 +1,3 @@
-from .similarity import spatial_similarity
+from .similarity import denoise_labels, spatial_similarity
 
-__all__ = ["spatial_similarity"]
+__all__ = ["denoise_labels", "spatial_similarity"]
