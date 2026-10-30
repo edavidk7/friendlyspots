@@ -18,7 +18,7 @@ license-files = ["LICENSE"]
 dependencies = ["numpy", "pandas", "scipy"]
 
 [project.urls]
-Homepage = "https://github.com/george-hall-ucl/friendlyspots"
+Homepage = "https://github.com/edavidk7/friendlyspots/tree/metrics-and-benchmarks"
 Issues = "https://github.com/george-hall-ucl/friendlyspots/issues"
 
 [tool.setuptools]

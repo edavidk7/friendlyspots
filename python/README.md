@@ -3,7 +3,7 @@
 
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/george-hall-ucl/friendlyspots/main/assets/logo.gif" width="210" alt="friendlyspots logo">
+  <img src="https://raw.githubusercontent.com/edavidk7/friendlyspots/metrics-and-benchmarks/assets/logo.gif" width="210" alt="friendlyspots logo">
 </p>
 
 Compute similarity between spatial transcriptomics samples based on which
@@ -12,7 +12,7 @@ labels (e.g. cell types) border one another.
 ## Installation
 
 ```bash
-pip install "git+https://github.com/george-hall-ucl/friendlyspots#subdirectory=python"
+pip install "git+https://github.com/edavidk7/friendlyspots@metrics-and-benchmarks#subdirectory=python"
 ```
 
 Requires `pandas`, `numpy` and `scipy`. Also available as an
@@ -283,7 +283,7 @@ above all others). Composition only is a baseline, not a metric option: it
 compares label proportions, ignoring where spots are. Metrics use the
 default `smoothing=0.2`. Best per row in bold.
 Scripts and data downloads to reproduce these are in
-[`benchmarks/`](https://github.com/george-hall-ucl/friendlyspots/tree/main/python/benchmarks).
+[`benchmarks/`](https://github.com/edavidk7/friendlyspots/tree/metrics-and-benchmarks/python/benchmarks).
 
 | Dataset | Task | Chance | Composition only | `euclidean` | `random_walk` | `npmi_heat` t=4 | `npmi_heat` t=16 | `spectral` |
 |---|---|---|---|---|---|---|---|---|
@@ -466,7 +466,7 @@ print(samples["anterior_1"].head())
 plot_slices(samples)
 ```
 
-<img src="https://raw.githubusercontent.com/george-hall-ucl/friendlyspots/main/python/figures/README-slices-1.png" alt="" width="75%" style="display: block; margin: auto;" />
+<img src="https://raw.githubusercontent.com/edavidk7/friendlyspots/metrics-and-benchmarks/python/figures/README-slices-1.png" alt="" width="75%" style="display: block; margin: auto;" />
 
 
 ``` python
@@ -480,7 +480,7 @@ print(sim.round(2))
 plot_similarity(sim)
 ```
 
-<img src="https://raw.githubusercontent.com/george-hall-ucl/friendlyspots/main/python/figures/README-similarity-3.png" alt="" width="50%" style="display: block; margin: auto;" />
+<img src="https://raw.githubusercontent.com/edavidk7/friendlyspots/metrics-and-benchmarks/python/figures/README-similarity-3.png" alt="" width="50%" style="display: block; margin: auto;" />
 
 By default, `spatial_similarity()` first relabels isolated spots that are
 likely mislabelled (`smoothing=0.2`, see [Label smoothing](#label-smoothing)).
@@ -501,7 +501,7 @@ for lam, df in smoothed.items():
 plot_smoothing(original, smoothed)
 ```
 
-<img src="https://raw.githubusercontent.com/george-hall-ucl/friendlyspots/main/python/figures/README-smoothing-1.png" alt="" width="75%" style="display: block; margin: auto;" />
+<img src="https://raw.githubusercontent.com/edavidk7/friendlyspots/metrics-and-benchmarks/python/figures/README-smoothing-1.png" alt="" width="75%" style="display: block; margin: auto;" />
 
 ## Citation
 

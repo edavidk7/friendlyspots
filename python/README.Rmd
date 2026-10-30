@@ -4,7 +4,7 @@
 # Absolute image URLs so figures also show on PyPI
 knitr::opts_knit$set(base.url = paste0(
   "https://raw.githubusercontent.com/",
-  "george-hall-ucl/friendlyspots/main/python/"
+  "edavidk7/friendlyspots/metrics-and-benchmarks/python/"
 ))
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>", dpi = 150,
                       fig.path = "figures/README-", fig.cap = "",
@@ -13,7 +13,7 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", dpi = 150,
 ```
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/george-hall-ucl/friendlyspots/main/assets/logo.gif" width="210" alt="friendlyspots logo">
+  <img src="https://raw.githubusercontent.com/edavidk7/friendlyspots/metrics-and-benchmarks/assets/logo.gif" width="210" alt="friendlyspots logo">
 </p>
 
 Compute similarity between spatial transcriptomics samples based on which
@@ -22,7 +22,7 @@ labels (e.g. cell types) border one another.
 ## Installation
 
 ```bash
-pip install "git+https://github.com/george-hall-ucl/friendlyspots#subdirectory=python"
+pip install "git+https://github.com/edavidk7/friendlyspots@metrics-and-benchmarks#subdirectory=python"
 ```
 
 Requires `pandas`, `numpy` and `scipy`. Also available as an
@@ -293,7 +293,7 @@ above all others). Composition only is a baseline, not a metric option: it
 compares label proportions, ignoring where spots are. Metrics use the
 default `smoothing=0.2`. Best per row in bold.
 Scripts and data downloads to reproduce these are in
-[`benchmarks/`](https://github.com/george-hall-ucl/friendlyspots/tree/main/python/benchmarks).
+[`benchmarks/`](https://github.com/edavidk7/friendlyspots/tree/metrics-and-benchmarks/python/benchmarks).
 
 | Dataset | Task | Chance | Composition only | `euclidean` | `random_walk` | `npmi_heat` t=4 | `npmi_heat` t=16 | `spectral` |
 |---|---|---|---|---|---|---|---|---|
