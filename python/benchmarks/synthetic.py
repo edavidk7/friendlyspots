@@ -269,7 +269,7 @@ def main():
         print(f"{name:24}" + "".join(
             f"{np.mean(scores[c, name]):>15.2f} ({np.std(scores[c, name]):.2f})" for c in CONDITIONS))
 
-    show = [m for m in ("euclidean (default)", "random_walk", "npmi_heat t=4", "spectral") if m in methods]
+    show = [m for m in ("euclidean (default)", "random_walk", "npmi_heat t=4", "npmi_heat t=16") if m in methods]
     print("\nper-class mAP, varied composition")
     print(f"{'class':16}" + "".join(f"{m:>22}" for m in show))
     for cls in CLASSES:

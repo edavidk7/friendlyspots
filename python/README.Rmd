@@ -51,12 +51,12 @@ means spatially identical. With the default metric, 0 is the least similar pair
 among the samples compared; other metrics give scores that don't depend on
 which other samples are compared (see `metric` below).
 
-Which metric to use: `metric="spectral"` did best in the
-[benchmarks](#benchmarks), capturing structure beyond direct neighbors while
-being robust to mislabelled spots, and `"random_walk"` is a simpler
-alternative that also discounts how common each label is. The default,
-`"euclidean"`, is kept for compatibility with earlier results, but mostly
-reflects how much of each label samples have rather than how labels are
+Which metric to use: `metric="npmi_heat"` did best in most of the
+[benchmarks](#benchmarks), removing the effect of composition while being
+robust to scattered mislabelled spots, and `"random_walk"` is a simpler
+alternative with no parameters that also discounts how common each label is.
+The default, `"euclidean"`, is kept for compatibility with earlier results, but
+mostly reflects how much of each label samples have rather than how labels are
 arranged.
 
 ### Options
@@ -66,11 +66,6 @@ arranged.
   different even if their underlying spatial features are similar.
 - `pools={"group_1": ["sample_1", "sample_2"], "group_2": ["sample_3"]}`: sum
   connection counts within groups before comparing.
-- `smoothing=0.2`: first relabel isolated, likely mislabelled spots in each
-  sample with `denoise_labels()` (below). The default relabels isolated spots
-  and pairs; larger values also relabel larger groups. `smoothing=0` turns it
-  off, e.g. to reproduce results computed without it, such as those of the pig
-  esophagus paper (Durkin et al. 2026).
 - `metric`: how connection counts are compared. All metrics other than the
   default give absolute scores, which don't depend on which other samples are
   compared, and require `normalize=True`.
@@ -88,11 +83,6 @@ arranged.
     common the two labels are, so rare labels' noisy values count less. It
     compares the neighbors of labels present in both samples, including
     neighbors only one of them has.
-  - `"spectral"`: averages `"random_walk"` with a comparison of the labels'
-    graph Fourier spectra: how each label's spatial pattern divides between
-    large domains and fine-grained mixing, and at which scales pairs of
-    labels occupy the same or complementary places. Captures structure
-    beyond direct neighbors, and is robust to scattered mislabelled spots.
 
 ### How the metrics work
 
@@ -193,124 +183,31 @@ $$d(a, b) = \frac{1}{2} \sqrt{\frac{\sum_{i \in R, j \in K} \bar p_i \bar p_j \l
 NPMI differences lie in $[-2, 2]$, so the factor $\frac{1}{2}$ keeps $d$ in
 $[0, 1]$. The similarity is $1 - d(a, b)$, or 0 if $R$ is empty.
 
-#### `"spectral"`
-
-**1. Labels as signals on the spot graph.** For label $c$, let $y_c \in
-\lbrace 0, 1 \rbrace^N$ indicate its spots. The normalized Laplacian
-$\mathcal{L} = I - D^{-1/2} A D^{-1/2}$ has eigendecomposition $\mathcal{L} = U
-\Lambda U^\top$, with eigenvalues $0 = \lambda_1 \le \dots \le \lambda_N \le 2$.
-The graph Fourier transform $\hat y_c = U^\top y_c$ writes $y_c$ as a sum of the
-eigenvectors $u_i$, and an eigenvector varies across the tissue more the
-larger its eigenvalue, since
-
-$$u_i^\top \mathcal{L} \, u_i = \sum_{p, q \text{ neighbors}} \left(\frac{u_{i,p}}{\sqrt{d_p}} - \frac{u_{i,q}}{\sqrt{d_q}}\right)^2 = \lambda_i,$$
-
-with $d_p$ the number of neighbors of spot $p$. Small $\lambda_i$ are smooth
-patterns spanning large domains; large $\lambda_i$ change from spot to spot,
-like salt-and-pepper mixing. The zero-frequency part ($\lambda = 0$, one
-eigenvector proportional to $\sqrt{d_p}$ per connected piece of tissue) only
-reflects how much of each label there is, so it's removed.
-
-**2. Energy per frequency band.** The energy that labels $c$ and $c'$ share in
-band $b$ is
-
-$$E_b(c, c') = \sum_{i : \lambda_i \in b} \hat y_{c,i} \, \hat y_{c',i} = y_c^\top P_b \, y_{c'},$$
-
-where $P_b$ projects onto the eigenvectors in band $b$. Individual eigenvectors
-are only defined up to sign, and up to rotation when eigenvalues repeat, but
-$P_b$ isn't, so $E_b$ is alignment-free. The bands are log-spaced in $\lambda
-N$, from 1 to $10^4$: the eigenvalues of patterns covering a given share of the
-tissue scale with $1 / N$, so this puts them in the same band whatever the size
-of the section.
-
-**3. Comparing samples.** Each label's spectrum shape is its energy per band
-divided by its total, $s_c(b) = E_b(c, c) / \sum_{b'} E_{b'}(c, c)$, compared
-between samples with $\sqrt{\mathrm{JS}}$ as for `"random_walk"`. Pairs of
-labels are compared by their coherence,
-
-$$\kappa_{cc'}(b) = \frac{E_b(c, c')}{\sqrt{E_b(c, c) \, E_b(c', c')}} \in [-1, 1],$$
-
-which is near $-1$ in bands where the two labels occupy complementary places,
-near 0 where they're unrelated and near 1 where they're found together. With
-label shares $\omega_c$ averaged over the two samples,
-
-$$d_\text{spectral}(a, b) = \frac{1}{2} \left( \frac{\sum_c \omega_c \sqrt{\mathrm{JS}}\left(s_c^a, s_c^b\right)}{\sum_c \omega_c} + \frac{\sum_{c < c'} \omega_c \omega_{c'} \, \overline{\left|\kappa_{cc'}^a - \kappa_{cc'}^b\right|} / 2}{\sum_{c < c'} \omega_c \omega_{c'}} \right),$$
-
-where the bar is the mean over bands, a label present in only one sample has
-distance 1, and pairs are compared only if both labels are in both samples.
-The metric's distance is $\frac{1}{2} \left(d_\text{random walk} +
-d_\text{spectral}\right)$, and the similarity is 1 minus it.
-
-**4. Without an eigendecomposition.** Computing $U$ takes time proportional to
-$N^3$, so the band energies are instead estimated with the kernel polynomial
-method. $M = \mathcal{L} - I$ has eigenvalues in $[-1, 1]$, where the Chebyshev
-polynomials $T_0(M) = I$, $T_1(M) = M$, $T_{k+1}(M) = 2 M \, T_k(M) - T_{k-1}(M)$
-are defined, so the moments $\mu_k = y_c^\top T_k(M) \, y_{c'}$ only need
-sparse matrix-vector products. Writing $\lambda - 1 = \cos \theta$, the energy
-in a band from $\lambda_\text{lo}$ to $\lambda_\text{hi}$ is then
-
-$$E \approx g_0 \mu_0 \frac{\theta_\text{lo} - \theta_\text{hi}}{\pi} + \sum_{k=1}^{K-1} 2 g_k \mu_k \frac{\sin k \theta_\text{lo} - \sin k \theta_\text{hi}}{k \pi},$$
-
-where the Jackson weights $g_k$ damp the ringing of a truncated series. With
-$K = 1000$ moments the total energy is exact, and frequencies are resolved to
-about $(\pi / K)^2$ near $\lambda = 0$, finer than the gaps between a section's
-smallest eigenvalues.
-
-### Label smoothing
-
-`denoise_labels(sample, lam=0.2)` relabels isolated spots that are likely
-mislabelled, and `spatial_similarity()` applies it to each sample with
-`lam=smoothing`. It can also be used on its own, e.g. to check which spots it
-would change:
-
-```python
-from friendlyspots import denoise_labels
-
-smoothed = denoise_labels(df1, lam=0.2)
-changed = df1[df1["label"] != smoothed["label"]]
-```
-
-Given a sample's labels $y$, it finds new labels $x$ minimizing
-
-$$E(x) = \sum_p [x_p \neq y_p] + \lambda \sum_{p, q \text{ neighbors}} [x_p \neq x_q],$$
-
-where $[\cdot]$ is 1 if true and 0 otherwise. The first term counts changed
-labels and the second the edges between neighbors with different labels, the
-total length of boundaries between labels, which is half the off-diagonal sum
-of $C$. A group of $k$ spots with $P$ edges to other labels is therefore
-relabelled when $\lambda P > k$. A spot has at most 6 neighbors, so values of
-$\lambda$ below $1/6$ change nothing, $0.2$ relabels isolated spots and pairs,
-and larger values relabel larger groups and smooth boundaries, also erasing
-labels that are genuinely scattered. $E$ is minimized with alpha-expansion
-graph cuts (Boykov et al. 2001): for each label in turn, a maximum flow decides
-which spots switch to it, repeated until no spot changes.
-
 ### Benchmarks
 
 How well each metric retrieves samples known to belong together, as mean
 average precision (mAP: 1 means every sample ranks all samples of its group
 above all others). Composition only is a baseline, not a metric option: it
-compares label proportions, ignoring where spots are. Metrics use the
-default `smoothing=0.2`. Best per row in bold.
+compares label proportions, ignoring where spots are. Best per row in bold.
 Scripts and data downloads to reproduce these are in
 [`benchmarks/`](https://github.com/edavidk7/friendlyspots/tree/metrics-and-benchmarks/python/benchmarks).
 
-| Dataset | Task | Chance | Composition only | `euclidean` | `random_walk` | `npmi_heat` t=4 | `npmi_heat` t=16 | `spectral` |
-|---|---|---|---|---|---|---|---|---|
-| Synthetic | Arrangement, fixed composition | 0.2 | 0.25 | 0.88 | 0.85 | 0.86 | 0.78 | **0.91** |
-| Synthetic | Arrangement, varied composition | 0.2 | 0.22 | 0.34 | 0.72 | 0.75 | 0.67 | **0.76** |
-| Synthetic | ... + boundary label noise (30%) | 0.2 | 0.23 | 0.36 | 0.70 | 0.74 | 0.68 | **0.77** |
-| Synthetic | ... + random label noise (15%) | 0.2 | 0.23 | 0.38 | 0.54 | **0.66** | 0.65 | 0.63 |
-| Pig esophagus | Time point | 0.40 | 0.61 | 0.59 | 0.57 | 0.63 | 0.62 | **0.64** |
-| Human cortex | Donor | 0.42 | 0.96 | 0.93 | **1.00** | **1.00** | **1.00** | **1.00** |
-| Human cortex | Adjacent section | 0.28 | 0.85 | 0.86 | 0.86 | 0.86 | 0.86 | **0.94** |
-| Human cortex | Donor, random label noise (15%) | 0.42 | 0.95 | 0.94 | **1.00** | **1.00** | **1.00** | **1.00** |
-| Human cortex | Adjacent section, random label noise (15%) | 0.28 | 0.82 | 0.84 | **0.90** | 0.88 | 0.84 | **0.90** |
-| Human cortex | Donor, random label noise (30%) | 0.42 | 0.96 | 0.94 | 0.97 | 0.99 | **1.00** | **1.00** |
-| Human cortex | Adjacent section, random label noise (30%) | 0.28 | 0.85 | 0.85 | 0.88 | 0.87 | 0.85 | **0.93** |
-| Human cortex | Donor, random crops | 0.37 | 0.61 | 0.60 | **0.72** | 0.70 | 0.67 | 0.68 |
-| Human cortex | Section, random crops | 0.13 | 0.29 | 0.30 | **0.38** | 0.33 | 0.31 | 0.33 |
-| Human heart | Patient group | 0.46 | 0.79 | 0.77 | 0.82 | 0.85 | 0.72 | **0.87** |
+| Dataset | Task | Chance | Composition only | `euclidean` | `random_walk` | `npmi_heat` t=4 | `npmi_heat` t=16 |
+|---|---|---|---|---|---|---|---|
+| Synthetic | Arrangement, fixed composition | 0.2 | 0.25 | **0.89** | 0.85 | 0.86 | 0.79 |
+| Synthetic | Arrangement, varied composition | 0.2 | 0.22 | 0.37 | 0.72 | **0.75** | 0.67 |
+| Synthetic | ... + boundary label noise (30%) | 0.2 | 0.23 | 0.37 | 0.71 | **0.74** | 0.68 |
+| Synthetic | ... + random label noise (15%) | 0.2 | 0.23 | 0.37 | 0.44 | 0.64 | **0.65** |
+| Pig esophagus | Time point | 0.40 | 0.61 | 0.59 | 0.59 | **0.63** | 0.61 |
+| Human cortex | Donor | 0.42 | 0.96 | 0.93 | **1.00** | **1.00** | **1.00** |
+| Human cortex | Adjacent section | 0.28 | 0.85 | **0.86** | **0.86** | **0.86** | **0.86** |
+| Human cortex | Donor, random label noise (15%) | 0.42 | 0.95 | 0.94 | 0.97 | **1.00** | **1.00** |
+| Human cortex | Adjacent section, random label noise (15%) | 0.28 | 0.82 | 0.84 | **0.89** | **0.89** | 0.85 |
+| Human cortex | Donor, random label noise (30%) | 0.42 | 0.96 | 0.93 | 0.97 | 0.97 | **0.99** |
+| Human cortex | Adjacent section, random label noise (30%) | 0.28 | **0.85** | 0.84 | **0.85** | **0.85** | 0.84 |
+| Human cortex | Donor, random crops | 0.37 | 0.61 | 0.60 | **0.72** | 0.70 | 0.67 |
+| Human cortex | Section, random crops | 0.13 | 0.29 | 0.30 | **0.38** | 0.33 | 0.31 |
+| Human heart | Patient group | 0.46 | 0.79 | 0.76 | 0.81 | **0.84** | 0.73 |
 
 Synthetic scores are means over 10 random datasets (standard deviations
 0.03-0.08); noise and crop scores are means over 5 random draws.
@@ -420,33 +317,6 @@ def plot_similarity(sim):
         ax.invert_yaxis()
         plt.xticks(rotation=45, ha="right")
     plt.show()
-
-
-def plot_smoothing(original, smoothed):
-    versions = {"original": original}
-    versions.update({f"lam = {lam}": df for lam, df in smoothed.items()})
-    fig, axes = plt.subplots(1, len(versions), layout="constrained")
-    for ax, (title, df) in zip(axes, versions.items()):
-        x, y = df["array_col"], -df["array_row"] * np.sqrt(3)
-        ax.scatter(x, y, c=df["label"].map(colors), s=3, linewidths=0)
-        # Circle the spots whose label changed
-        changed = df["label"].to_numpy() != original["label"].to_numpy()
-        ax.scatter(x[changed], y[changed], s=14, facecolors="none",
-                   edgecolors="black", linewidths=0.5)
-        ax.set_title(title)
-        ax.set_aspect("equal")
-        ax.axis("off")
-    handles = [
-        plt.Line2D([], [], marker="o", linestyle="", color=color, label=label)
-        for label, color in colors.items()
-    ]
-    fig.legend(
-        handles=handles,
-        loc="outside lower center",
-        ncol=len(colors),
-        frameon=False,
-    )
-    plt.show()
 ```
 
 </details>
@@ -471,22 +341,6 @@ plot_slices(samples)
 sim = spatial_similarity(samples)
 print(sim.round(2))
 plot_similarity(sim)
-```
-
-By default, `spatial_similarity()` first relabels isolated spots that are
-likely mislabelled (`smoothing=0.2`, see [Label smoothing](#label-smoothing)).
-`denoise_labels()` shows which spots that changes, circled, and how larger
-values smooth more:
-
-```{python smoothing, fig.width = 10, fig.height = 4, dpi = 300}
-from friendlyspots import denoise_labels
-
-original = samples["anterior_1"]
-smoothed = {lam: denoise_labels(original, lam=lam) for lam in [0.2, 0.5]}
-for lam, df in smoothed.items():
-    n = (df["label"] != original["label"]).sum()
-    print(f"lam = {lam}: {n} of {len(original)} spots relabelled")
-plot_smoothing(original, smoothed)
 ```
 
 ## Citation

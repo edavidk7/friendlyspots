@@ -16,7 +16,6 @@ SETTINGS = {
     "random_walk": {"metric": "random_walk"},
     "npmi_heat t=4": {"metric": "npmi_heat", "t": 4},
     "npmi_heat t=16": {"metric": "npmi_heat", "t": 16},
-    "spectral": {"metric": "spectral"},
 }
 
 

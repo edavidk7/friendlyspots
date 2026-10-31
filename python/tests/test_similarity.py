@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from friendlyspots import denoise_labels, spatial_similarity
-from friendlyspots.similarity import _adjacency, _bands, _chebyshev_moments, _npmi_distance, _onehot
+from friendlyspots import spatial_similarity
+from friendlyspots.similarity import _npmi_distance
 
 SAMPLES = {
     "A": pd.DataFrame({"array_row": [0, 0, 1], "array_col": [0, 2, 1], "label": ["a", "b", "a"]}),
@@ -87,7 +87,7 @@ def test_pools():
     assert_sim(sim, 0, 1 - np.sqrt(6) / np.sqrt(38), 1 - 4 / np.sqrt(38))
 
 
-@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat", "spectral"])
+@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat"])
 def test_requires_normalize(metric):
     with pytest.raises(ValueError, match="requires normalize=True"):
         spatial_similarity(SAMPLES, normalize=False, metric=metric)
@@ -157,14 +157,14 @@ def test_npmi_heat_t():
         spatial_similarity(SAMPLES, metric="random_walk", t=4)
 
 
-@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat", "spectral"])
+@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat"])
 def test_composition_metrics_identical_samples(metric):
     """Identical samples are fully similar."""
     sim = spatial_similarity({"A": SAMPLES["A"], "B": SAMPLES["A"]}, metric=metric)
     np.testing.assert_allclose(sim.to_numpy(), np.ones((2, 2)))
 
 
-@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat", "spectral"])
+@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat"])
 def test_composition_metrics_no_connections(metric):
     """Samples with no neighboring spots yield NA."""
     sim = spatial_similarity(SAMPLES, metric=metric)
@@ -175,7 +175,7 @@ def test_composition_metrics_no_connections(metric):
     assert with_d["D"].isna().all() and with_d.loc["D"].isna().all()
 
 
-@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat", "spectral"])
+@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat"])
 def test_composition_metrics_pools(metric):
     """Single-sample pools match the samples; pooling sums before comparing."""
     sim = spatial_similarity(SAMPLES, metric=metric)
@@ -183,45 +183,6 @@ def test_composition_metrics_pools(metric):
     pd.testing.assert_frame_equal(single, sim)
     pooled = spatial_similarity(SAMPLES, metric=metric, pools={"AB": ["A", "B"], "A": ["A"]})
     assert 0 < pooled.loc["AB", "A"] < 1
-
-
-# A hexagon of 7 spots: label b in the middle, a all around
-FLOWER = pd.DataFrame({
-    "array_row": [1, 1, 1, 0, 0, 2, 2],
-    "array_col": [3, 1, 5, 2, 4, 2, 4],
-    "label": ["b", "a", "a", "a", "a", "a", "a"],
-})
-
-
-def test_denoise_labels_isolated_spot():
-    """An isolated spot is relabelled once its 6 boundary edges cost more than relabelling it."""
-    # Keeping b costs 6 * lam; relabelling it costs 1
-    assert list(denoise_labels(FLOWER, lam=0.2)["label"]) == ["a"] * 7
-    pd.testing.assert_frame_equal(denoise_labels(FLOWER, lam=0.15), FLOWER)
-
-
-def test_denoise_labels_keeps_regions():
-    """Large regions and the straight boundary between them are kept."""
-    rows, cols = zip(*[(r, 2 * k + r % 2) for r in range(6) for k in range(10)])
-    halves = pd.DataFrame({"array_row": rows, "array_col": cols, "label": ["a" if c < 10 else "b" for c in cols]})
-    pd.testing.assert_frame_equal(denoise_labels(halves, lam=0.2), halves)
-
-
-def test_denoise_labels_keeps_other_columns():
-    sample = FLOWER.assign(extra=range(7)).set_axis(list("pqrstuv"))
-    out = denoise_labels(sample, lam=0.2)
-    pd.testing.assert_frame_equal(out.drop(columns="label"), sample.drop(columns="label"))
-    with pytest.raises(ValueError, match="lam must be non-negative"):
-        denoise_labels(FLOWER, lam=-1)
-
-
-def test_smoothing():
-    """smoothing relabels isolated spots in each sample before comparing."""
-    pair = {"noisy": FLOWER, "clean": FLOWER.assign(label="a")}
-    assert spatial_similarity(pair, metric="random_walk", smoothing=0).loc["noisy", "clean"] < 1
-    assert spatial_similarity(pair, metric="random_walk", smoothing=0.2).loc["noisy", "clean"] == 1
-    with pytest.raises(ValueError, match="smoothing must be non-negative"):
-        spatial_similarity(pair, smoothing=-0.1)
 
 
 def hexagon(radius=5):
@@ -246,7 +207,7 @@ def rotate60(sample):
     return sample.assign(array_row=rows - rows.min(), array_col=cols - cols.min() + ((rows - rows.min()) % 2 != (cols - cols.min()) % 2))
 
 
-@pytest.mark.parametrize("metric", ["euclidean", "random_walk", "npmi_heat", "spectral"])
+@pytest.mark.parametrize("metric", ["euclidean", "random_walk", "npmi_heat"])
 def test_alignment_free(metric):
     """Rotating, mirroring or reordering a sample's spots on the grid doesn't change its similarities."""
     s = hexagon()
@@ -256,30 +217,6 @@ def test_alignment_free(metric):
         assert len(set(zip(v["array_row"], v["array_col"]))) == len(s)
         sim = spatial_similarity({"original": s, name: v}, metric=metric)
         np.testing.assert_allclose(sim.to_numpy(), 1, atol=1e-9, err_msg=name)
-
-
-def test_spectral_band_energies():
-    """Band energies from Chebyshev moments sum to each label's energy and match an exact eigendecomposition."""
-    s = hexagon(radius=6)
-    labels = ["a", "b", "c", "d"]
-    y = pd.get_dummies(s["label"])[labels].to_numpy(float)
-    a = _adjacency(s)
-    energies = _bands(_chebyshev_moments(_onehot(np.argmax(y, axis=1), 4), a), [0, 0.5, 1, 1.5, 2])
-    adj = a.toarray(); deg = adj.sum(axis=1)
-    lam, u = np.linalg.eigh(np.eye(len(deg)) - adj / np.sqrt(np.outer(deg, deg)))
-    yh = u.T @ y
-    yh[lam < 1e-9] = 0  # the zero-frequency part is removed
-    exact = np.array([(yh[(lam >= lo) & (lam < hi)] ** 2).sum(axis=0) for lo, hi in [(0, 0.5), (0.5, 1), (1, 1.5), (1.5, 2.1)]])
-    auto = np.einsum("bcc->bc", energies)
-    np.testing.assert_allclose(auto.sum(axis=0), exact.sum(axis=0), rtol=1e-9)
-    np.testing.assert_allclose(auto, exact, atol=0.02 * exact.sum(axis=0).max())
-
-
-def test_spectral_sees_beyond_neighbors():
-    """spectral tells apart samples whose direct-neighbor contacts are identical."""
-    joined = pd.DataFrame({"array_row": [0, 0, 0, 0], "array_col": [0, 2, 4, 6], "label": ["a", "a", "b", "b"]})
-    apart = pd.DataFrame({"array_row": [0] * 6, "array_col": [0, 2, 10, 12, 20, 22], "label": ["a", "a", "b", "b", "a", "b"]})
-    assert spatial_similarity({"joined": joined, "apart": apart}, metric="spectral").loc["joined", "apart"] < 1
 
 
 def test_pig_esophagus_paper():
@@ -294,8 +231,7 @@ def test_pig_esophagus_paper():
         "6 months": ["6 months (B)", "6 months (C)"],
         "Native": ["Native DP1", "Native DP2", "Native DP3", "Native (C)"],
     }
-    # The paper didn't smooth labels
-    sim = spatial_similarity(samples, pools=pools, smoothing=0)
+    sim = spatial_similarity(samples, pools=pools)
     paper = np.array([
         [1.00, 0.01, 0.03, 0.09, 0.00],
         [0.01, 1.00, 0.90, 0.68, 0.27],

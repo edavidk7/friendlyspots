@@ -1,9 +1,11 @@
 # Benchmarks
 
 Scripts comparing the `metric` options of `spatial_similarity()`, plus a
-composition-only baseline (label proportions, ignoring where spots are). Each
-scores how well a setting retrieves samples known to belong together, as
-nearest-neighbor accuracy (1-NN) and mean average precision (mAP).
+composition-only baseline (label proportions, ignoring where spots are). The
+retrieval benchmarks score how well a setting retrieves samples known to belong
+together, as nearest-neighbor accuracy (1-NN) and mean average precision (mAP).
+The detection benchmark scores how well a setting tells a small biological
+alteration apart from label noise, as AUC.
 
 ```bash
 ./download_data.sh     # download and process the public datasets (~2.1 GB)
@@ -21,6 +23,7 @@ Processing the heart data requires `h5py`.
 | `pig` | Durkin et al. (2026), 10 sections (the test data) | Cell types | Time point |
 | `dlpfc` | Maynard et al. (2021), 12 sections from [LieberInstitute/HumanPilot](https://github.com/LieberInstitute/HumanPilot) | Manual cortical layers | Donor; adjacent section; also with label noise and random crops |
 | `heart` | Kuppe et al. (2022), 15 single-zone sections from [Zenodo 6578047](https://zenodo.org/records/6578047) | Dominant deconvolved cell type | Myogenic (control, remote zone), ischaemic or fibrotic zone |
+| `detection` | Synthetic, pig, cortex and heart sections as bases | As above, plus spiked-in alterations of 5-40 spots: a new rare cell type at an interface, or an ectopic domain | Altered vs only noisy (random flips, boundary jitter) |
 
 `python synthetic.py --alternatives` also scores features that were tried and
 not added to the package.
@@ -39,6 +42,6 @@ Current results are summarised in the
 - `run_benchmarks.sh`: runs benchmarks, saving output to `results/`.
 - `common.py`: settings compared, composition baseline, retrieval scoring and
   dataset loading.
-- `synthetic.py`, `pig.py`, `dlpfc.py`, `heart.py`: the benchmarks.
+- `synthetic.py`, `pig.py`, `dlpfc.py`, `heart.py`, `detection.py`: the benchmarks.
 
 `data/` and `results/` are not tracked by git.
