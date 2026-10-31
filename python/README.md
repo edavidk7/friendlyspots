@@ -45,8 +45,10 @@ Which metric to use: `metric="npmi_heat"` did best in most of the
 [benchmarks](#benchmarks), removing the effect of composition while being
 robust to scattered mislabelled spots, and `"random_walk"` is a simpler
 alternative with no parameters that also discounts how common each label is.
-The default, `"euclidean"`, is kept for compatibility with earlier results, but
-mostly reflects how much of each label samples have rather than how labels are
+To detect a rare cell type changing where it is, use `"random_walk"` with
+`unit_diagonal=True`, which makes rare labels count for more. The default,
+`"euclidean"`, is kept for compatibility with earlier results, but mostly
+reflects how much of each label samples have rather than how labels are
 arranged.
 
 ### Options
@@ -205,25 +207,75 @@ compares label proportions, ignoring where spots are. Best per row in bold.
 Scripts and data downloads to reproduce these are in
 [`benchmarks/`](https://github.com/edavidk7/friendlyspots/tree/metrics-and-benchmarks/python/benchmarks).
 
-| Dataset | Task | Chance | Composition only | `euclidean` | `random_walk` | `npmi_heat` t=4 | `npmi_heat` t=16 |
-|---|---|---|---|---|---|---|---|
-| Synthetic | Arrangement, fixed composition | 0.2 | 0.25 | **0.89** | 0.85 | 0.86 | 0.79 |
-| Synthetic | Arrangement, varied composition | 0.2 | 0.22 | 0.37 | 0.72 | **0.75** | 0.67 |
-| Synthetic | ... + boundary label noise (30%) | 0.2 | 0.23 | 0.37 | 0.71 | **0.74** | 0.68 |
-| Synthetic | ... + random label noise (15%) | 0.2 | 0.23 | 0.37 | 0.44 | 0.64 | **0.65** |
-| Pig esophagus | Time point | 0.40 | 0.61 | 0.59 | 0.59 | **0.63** | 0.61 |
-| Human cortex | Donor | 0.42 | 0.96 | 0.93 | **1.00** | **1.00** | **1.00** |
-| Human cortex | Adjacent section | 0.28 | 0.85 | **0.86** | **0.86** | **0.86** | **0.86** |
-| Human cortex | Donor, random label noise (15%) | 0.42 | 0.95 | 0.94 | 0.97 | **1.00** | **1.00** |
-| Human cortex | Adjacent section, random label noise (15%) | 0.28 | 0.82 | 0.84 | **0.89** | **0.89** | 0.85 |
-| Human cortex | Donor, random label noise (30%) | 0.42 | 0.96 | 0.93 | 0.97 | 0.97 | **0.99** |
-| Human cortex | Adjacent section, random label noise (30%) | 0.28 | **0.85** | 0.84 | **0.85** | **0.85** | 0.84 |
-| Human cortex | Donor, random crops | 0.37 | 0.61 | 0.60 | **0.72** | 0.70 | 0.67 |
-| Human cortex | Section, random crops | 0.13 | 0.29 | 0.30 | **0.38** | 0.33 | 0.31 |
-| Human heart | Patient group | 0.46 | 0.79 | 0.76 | 0.81 | **0.84** | 0.73 |
+| Dataset | Task | Chance | Composition only | `euclidean` | `random_walk` | `npmi_heat` t=4 | `npmi_heat` t=16 | `rw`, `unit_diagonal` | `rw`, `unit_diagonal`, `"log2"` |
+|---|---|---|---|---|---|---|---|---|---|
+| Synthetic | Arrangement, fixed composition | 0.2 | 0.25 | **0.89** | 0.85 | 0.86 | 0.79 | 0.84 | 0.84 |
+| Synthetic | Arrangement, varied composition | 0.2 | 0.22 | 0.37 | 0.72 | **0.75** | 0.67 | 0.72 | 0.73 |
+| Synthetic | ... + boundary label noise (30%) | 0.2 | 0.23 | 0.37 | 0.71 | **0.74** | 0.68 | 0.71 | 0.72 |
+| Synthetic | ... + random label noise (15%) | 0.2 | 0.23 | 0.37 | 0.44 | 0.64 | **0.65** | 0.47 | 0.48 |
+| Pig esophagus | Time point | 0.40 | 0.61 | 0.59 | 0.59 | **0.63** | 0.61 | **0.63** | 0.62 |
+| Human cortex | Donor | 0.42 | 0.96 | 0.93 | **1.00** | **1.00** | **1.00** | **1.00** | **1.00** |
+| Human cortex | Adjacent section | 0.28 | 0.85 | **0.86** | **0.86** | **0.86** | **0.86** | **0.86** | **0.86** |
+| Human cortex | Donor, random label noise (15%) | 0.42 | 0.95 | 0.94 | 0.97 | **1.00** | **1.00** | 0.92 | 0.92 |
+| Human cortex | Adjacent section, random label noise (15%) | 0.28 | 0.82 | 0.84 | **0.89** | **0.89** | 0.85 | 0.72 | 0.72 |
+| Human cortex | Donor, random label noise (30%) | 0.42 | 0.96 | 0.93 | 0.97 | 0.97 | **0.99** | 0.89 | 0.89 |
+| Human cortex | Adjacent section, random label noise (30%) | 0.28 | **0.85** | 0.84 | **0.85** | **0.85** | 0.84 | 0.70 | 0.70 |
+| Human cortex | Donor, random crops | 0.37 | 0.61 | 0.60 | **0.72** | 0.70 | 0.67 | 0.68 | 0.68 |
+| Human cortex | Section, random crops | 0.13 | 0.29 | 0.30 | **0.38** | 0.33 | 0.31 | 0.33 | 0.33 |
+| Human heart | Patient group | 0.46 | 0.79 | 0.76 | 0.81 | **0.84** | 0.73 | 0.53 | 0.52 |
 
 Synthetic scores are means over 10 random datasets (standard deviations
 0.03-0.08); noise and crop scores are means over 5 random draws.
+
+#### Detecting small alterations
+
+How well each setting tells a section with a small alteration apart from the
+same section with only label noise, as AUC: the probability that an altered
+pair of sections is further apart than a pair differing only by noise, so 0.5
+means no better than chance and 1 always. Noise is applied independently to
+both sections of a pair. Alterations are compact patches of 10 / 20 spots
+(about 1% of a section):
+
+- **Niche cluster**: a rare cell type, otherwise scattered over 2% of the
+  spots, gathers into a cluster at the interface between the two most common
+  labels. Its number of spots is unchanged, so only its arrangement differs.
+- **New domain**: an island of an existing label appears inside a region of a
+  label it otherwise doesn't touch.
+
+Noise is random label flips (5% or 10% of spots), or boundary jitter (30% of
+spots bordering another label take a neighbor's label). `"rw"` is
+`"random_walk"`. Best per row and size in bold.
+
+| Dataset | Alteration | Noise | Composition only | `euclidean` | `random_walk` | `npmi_heat` t=4 | `rw`, `unit_diagonal` | `rw`, `unit_diagonal`, `"log2"` |
+|---|---|---|---|---|---|---|---|---|
+| Synthetic | Niche cluster | random flips 5% | 0.50 / 0.49 | 0.55 / 0.68 | 0.62 / 0.74 | 0.56 / 0.68 | 0.95 / **1.00** | **0.96** / **1.00** |
+| Synthetic | New domain | random flips 5% | 0.61 / **0.78** | 0.57 / 0.71 | 0.55 / 0.56 | **0.64** / 0.76 | 0.50 / 0.51 | 0.51 / 0.52 |
+| Synthetic | Niche cluster | random flips 10% | 0.54 / 0.53 | 0.60 / 0.64 | 0.57 / 0.67 | 0.55 / 0.60 | **0.86** / 0.99 | **0.86** / **1.00** |
+| Synthetic | New domain | random flips 10% | 0.60 / 0.66 | **0.62** / 0.68 | 0.52 / 0.51 | 0.59 / **0.71** | 0.47 / 0.51 | 0.48 / 0.50 |
+| Synthetic | Niche cluster | boundary jitter 30% | 0.48 / 0.48 | 0.55 / 0.73 | 0.66 / 0.88 | 0.67 / 0.88 | 0.84 / **1.00** | **0.86** / **1.00** |
+| Synthetic | New domain | boundary jitter 30% | 0.59 / 0.74 | 0.66 / 0.83 | 0.93 / 0.94 | **0.94** / **0.98** | 0.61 / 0.69 | 0.65 / 0.73 |
+| Pig esophagus | Niche cluster | random flips 5% | 0.57 / 0.57 | 0.60 / 0.68 | 0.61 / 0.78 | 0.60 / 0.77 | **0.71** / 0.85 | **0.71** / **0.89** |
+| Pig esophagus | New domain | random flips 5% | 0.61 / 0.65 | 0.53 / 0.70 | 0.48 / 0.49 | **0.63** / **0.72** | 0.48 / 0.52 | 0.47 / 0.53 |
+| Pig esophagus | Niche cluster | random flips 10% | 0.47 / 0.42 | 0.46 / 0.57 | 0.52 / 0.61 | 0.50 / 0.61 | 0.65 / 0.86 | **0.67** / **0.88** |
+| Pig esophagus | New domain | random flips 10% | 0.51 / 0.57 | 0.56 / **0.69** | 0.49 / 0.50 | **0.61** / 0.67 | 0.55 / 0.51 | 0.55 / 0.51 |
+| Pig esophagus | Niche cluster | boundary jitter 30% | 0.51 / 0.43 | **0.63** / 0.77 | 0.59 / 0.88 | 0.55 / 0.75 | 0.60 / **0.96** | 0.57 / 0.93 |
+| Pig esophagus | New domain | boundary jitter 30% | 0.50 / 0.62 | **0.66** / **0.83** | 0.60 / 0.64 | 0.62 / 0.76 | 0.43 / 0.36 | 0.44 / 0.36 |
+| Human cortex | Niche cluster | random flips 5% | 0.52 / 0.53 | 0.55 / 0.75 | 0.56 / 0.69 | 0.50 / 0.59 | **0.95** / **1.00** | 0.94 / **1.00** |
+| Human cortex | New domain | random flips 5% | 0.54 / **0.71** | 0.57 / **0.71** | 0.58 / 0.60 | **0.63** / 0.68 | 0.54 / 0.58 | 0.54 / 0.58 |
+| Human cortex | Niche cluster | random flips 10% | 0.58 / 0.44 | 0.51 / 0.60 | 0.52 / 0.61 | 0.58 / 0.64 | **0.73** / **0.96** | **0.73** / **0.96** |
+| Human cortex | New domain | random flips 10% | 0.53 / **0.65** | 0.55 / 0.61 | 0.52 / 0.52 | **0.61** / 0.63 | 0.47 / 0.48 | 0.47 / 0.49 |
+| Human cortex | Niche cluster | boundary jitter 30% | 0.55 / 0.60 | 0.60 / 0.80 | 0.63 / 0.88 | 0.69 / 0.94 | **0.76** / **0.99** | **0.76** / **0.99** |
+| Human cortex | New domain | boundary jitter 30% | 0.53 / 0.69 | 0.54 / 0.77 | **1.00** / **1.00** | 0.99 / **1.00** | 0.57 / 0.67 | 0.59 / 0.70 |
+| Human heart | Niche cluster | random flips 5% | 0.56 / 0.57 | 0.57 / **0.80** | 0.61 / 0.76 | 0.58 / 0.71 | **0.63** / 0.72 | **0.63** / 0.71 |
+| Human heart | New domain | random flips 5% | **0.67** / **0.75** | 0.64 / 0.73 | 0.62 / 0.61 | 0.61 / 0.70 | 0.57 / 0.57 | 0.57 / 0.58 |
+| Human heart | Niche cluster | random flips 10% | 0.59 / 0.50 | 0.54 / 0.69 | **0.63** / **0.71** | 0.53 / 0.64 | 0.56 / 0.61 | 0.58 / 0.63 |
+| Human heart | New domain | random flips 10% | 0.52 / **0.69** | **0.59** / 0.64 | 0.56 / 0.61 | 0.51 / 0.60 | 0.47 / 0.51 | 0.50 / 0.55 |
+| Human heart | Niche cluster | boundary jitter 30% | 0.55 / 0.51 | **0.57** / 0.61 | **0.57** / **0.72** | 0.51 / 0.60 | 0.52 / **0.72** | 0.51 / 0.71 |
+| Human heart | New domain | boundary jitter 30% | **0.75** / **0.84** | 0.58 / 0.64 | 0.63 / 0.69 | 0.54 / 0.63 | 0.53 / 0.53 | 0.53 / 0.52 |
+
+`unit_diagonal=True` makes `"random_walk"` far more sensitive to a rare cell
+type changing niche, but less to a new domain of a common label, which plain
+`"random_walk"` and `"npmi_heat"` detect best when noise is at boundaries.
 
 - **Synthetic**: generated tissue sections of random size, shape and
   orientation with 4 labels, in 6 arrangements (5 sections each): two layer
