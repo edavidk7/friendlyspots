@@ -51,15 +51,15 @@ means spatially identical. With the default metric, 0 is the least similar pair
 among the samples compared; other metrics give scores that don't depend on
 which other samples are compared (see `metric` below).
 
-Which metric to use: `metric="npmi_heat"` did best in most of the
-[benchmarks](#benchmarks), removing the effect of composition while being
-robust to scattered mislabelled spots, and `"random_walk"` is a simpler
-alternative with no parameters that also discounts how common each label is.
-To detect a rare cell type changing where it is, use `"random_walk"` with
-`unit_diagonal=True`, which makes rare labels count for more. The default,
-`"euclidean"`, is kept for compatibility with earlier results, but mostly
-reflects how much of each label samples have rather than how labels are
-arranged.
+Which metric to use: `"random_walk"` discounts how common each label is and
+has no parameters, and `"moran"` compares each sample with random placement of
+its own labels, separating composition from arrangement, with scores that
+don't depend on sample size. To detect a rare cell type changing where it is,
+use `"random_walk"` with `unit_diagonal=True`, which did best at that in the
+[benchmarks](#benchmarks), though it also makes noise in rare labels count for
+more. The default, `"euclidean"`, is kept for compatibility with earlier
+results, but mostly reflects how much of each label samples have rather than
+how labels are arranged.
 
 ### Options
 
@@ -72,9 +72,6 @@ arranged.
   $C_{ij} / \sqrt{C_{ii} C_{jj}}$, so every label's connections with itself are
   1, removing how much of each label there is. Rare labels then count for more,
   and so does noise in them. For `"euclidean"` and `"random_walk"`.
-- `transform="log2"`: compare $\log_2(1 + x)$ of the connection counts (after
-  `unit_diagonal`), which compresses large counts while keeping 0 at 0 and a
-  unit diagonal at 1. For `"euclidean"` and `"random_walk"`.
 - `metric`: how connection counts are compared. All metrics other than the
   default give absolute scores, which don't depend on which other samples are
   compared, and require `normalize=True`.
@@ -84,14 +81,6 @@ arranged.
     own total, so differences in how common each label is matter less. Simple,
     with no parameters. A label missing from one sample counts as a
     difference, in proportion to how common it is in the other.
-  - `"npmi_heat"`: compares how much more or less often each pair of labels is
-    near each other than their abundance predicts (normalized pointwise mutual
-    information), removing the effect of composition. "Near" is a
-    neighborhood of roughly `sqrt(3 * t)` spots (`t` defaults to 4), which
-    makes it robust to scattered mislabelled spots. Pairs are weighted by how
-    common the two labels are, so rare labels' noisy values count less. It
-    compares the neighbors of labels present in both samples, including
-    neighbors only one of them has.
   - `"moran"`: compares how far each pair of labels' joins (touching spots)
     are from what random placement of the sample's own labels on its own spots
     would give, as Moran's join-count z-scores, by the angle between samples'
@@ -157,9 +146,9 @@ distribution of the chain ($\pi P = \pi$, as $\tilde C$ is symmetric): if
 every label can reach every other, it's the long-run share of time the walk
 spends on label $i$. The similarity is $1 - d(a, b)$.
 
-#### `unit_diagonal` and `transform`
+#### `unit_diagonal`
 
-Both change each sample's connection counts before `"euclidean"` or
+This changes each sample's connection counts before `"euclidean"` or
 `"random_walk"` compares them. With one self loop per label, $\tilde C = C + I$,
 as for `"random_walk"`, `unit_diagonal=True` uses
 
@@ -169,54 +158,7 @@ like turning a covariance matrix into a correlation matrix: $U_{ii} = 1$ for
 every label, so $U$ no longer reflects how many spots each label has, only how
 labels' connections compare with their own connections with themselves. A
 label with few spots has a small $\tilde C_{ii}$, so its connections are
-scaled up, along with any noise in them. `transform="log2"` then uses
-$\log_2(1 + x)$ of each entry, which keeps zeros at 0 and, after
-`unit_diagonal`, the diagonal at $\log_2 2 = 1$.
-
-#### `"npmi_heat"`
-
-**1. Contacts over a neighborhood (heat diffusion).** Let $A$ be the
-spot-by-spot neighbor matrix ($A_{uv} = 1$ if spots $u$ and $v$ touch), $L =
-\mathrm{diag}(A \mathbf{1}) - A$ its graph Laplacian, and $X$ the
-spot-by-label matrix with $X_{ui} = 1$ if spot $u$ has label $i$. Put one unit
-of heat on every spot and let heat flow between touching spots for time $t$,
-following $\frac{dh}{dt} = -L h$. Then
-
-$$H = X^\top e^{-tL} X$$
-
-has $H_{ij}$ equal to the heat starting on label-$i$ spots that ends up on
-label-$j$ spots. Heat is conserved, so row $i$ sums to the number of label-$i$
-spots. For small $t$, $H \approx X^\top X - t X^\top L X$, which only reflects
-direct neighbors; larger $t$ reaches further, about $\sqrt{3t}$ spots. Averaging
-over a neighborhood makes the result robust to scattered mislabelled spots.
-
-**2. Removing composition (normalized pointwise mutual information).** Divide
-$H$ by its total to get $P_{ij}$, with label shares $p_i = \sum_j P_{ij}$. If
-labels were placed at random, labels $i$ and $j$ would be near each other in
-proportion to their abundances, $P_{ij} \approx p_i p_j$. Pointwise mutual
-information compares what's observed with that:
-
-$$\mathrm{PMI}_{ij} = \log_2 \frac{P_{ij}}{p_i \, p_j},$$
-
-which is 0 when $i$ and $j$ are near each other exactly as often as their
-abundances predict, positive when more often and negative when less, whatever
-the composition. It's then normalized to $[-1, 1]$:
-
-$$\mathrm{NPMI}_{ij} = \frac{\mathrm{PMI}_{ij}}{-\log_2 P_{ij}},$$
-
-with $\mathrm{NPMI}_{ij} = -1$ if $P_{ij} = 0$ (never near each other) and
-$1$ if $P_{ij} = 1$.
-
-**3. Comparing samples.** Rows are labels present in both samples ($R$);
-columns are labels present in either ($K$), so a shared label bordering a
-label the other sample lacks counts as a difference. NPMI of rare labels is
-noisy, so each pair is weighted by the product of the two labels' shares
-averaged over the samples, $\bar p_i = \frac{1}{2} (p_i^a + p_i^b)$:
-
-$$d(a, b) = \frac{1}{2} \sqrt{\frac{\sum_{i \in R, j \in K} \bar p_i \bar p_j \left(\mathrm{NPMI}_{ij}^a - \mathrm{NPMI}_{ij}^b\right)^2}{\sum_{i \in R, j \in K} \bar p_i \bar p_j}}.$$
-
-NPMI differences lie in $[-2, 2]$, so the factor $\frac{1}{2}$ keeps $d$ in
-$[0, 1]$. The similarity is $1 - d(a, b)$, or 0 if $R$ is empty.
+scaled up, along with any noise in them.
 
 #### `"moran"`
 
@@ -268,22 +210,22 @@ compares label proportions, ignoring where spots are. Best per row in bold.
 Scripts and data downloads to reproduce these are in
 [`benchmarks/`](https://github.com/edavidk7/friendlyspots/tree/metrics-and-benchmarks/python/benchmarks).
 
-| Dataset | Task | Chance | Composition only | `euclidean` | `random_walk` | `npmi_heat` t=4 | `npmi_heat` t=16 | `rw`, `unit_diagonal` | `rw`, `unit_diagonal`, `"log2"` |
-|---|---|---|---|---|---|---|---|---|---|
-| Synthetic | Arrangement, fixed composition | 0.2 | 0.25 | **0.89** | 0.85 | 0.86 | 0.79 | 0.84 | 0.84 |
-| Synthetic | Arrangement, varied composition | 0.2 | 0.22 | 0.37 | 0.72 | **0.75** | 0.67 | 0.72 | 0.73 |
-| Synthetic | ... + boundary label noise (30%) | 0.2 | 0.23 | 0.37 | 0.71 | **0.74** | 0.68 | 0.71 | 0.72 |
-| Synthetic | ... + random label noise (15%) | 0.2 | 0.23 | 0.37 | 0.44 | 0.64 | **0.65** | 0.47 | 0.48 |
-| Pig esophagus | Time point | 0.40 | 0.61 | 0.59 | 0.59 | **0.63** | 0.61 | **0.63** | 0.62 |
-| Human cortex | Donor | 0.42 | 0.96 | 0.93 | **1.00** | **1.00** | **1.00** | **1.00** | **1.00** |
-| Human cortex | Adjacent section | 0.28 | 0.85 | **0.86** | **0.86** | **0.86** | **0.86** | **0.86** | **0.86** |
-| Human cortex | Donor, random label noise (15%) | 0.42 | 0.95 | 0.94 | 0.97 | **1.00** | **1.00** | 0.92 | 0.92 |
-| Human cortex | Adjacent section, random label noise (15%) | 0.28 | 0.82 | 0.84 | **0.89** | **0.89** | 0.85 | 0.72 | 0.72 |
-| Human cortex | Donor, random label noise (30%) | 0.42 | 0.96 | 0.93 | 0.97 | 0.97 | **0.99** | 0.89 | 0.89 |
-| Human cortex | Adjacent section, random label noise (30%) | 0.28 | **0.85** | 0.84 | **0.85** | **0.85** | 0.84 | 0.70 | 0.70 |
-| Human cortex | Donor, random crops | 0.37 | 0.61 | 0.60 | **0.72** | 0.70 | 0.67 | 0.68 | 0.68 |
-| Human cortex | Section, random crops | 0.13 | 0.29 | 0.30 | **0.38** | 0.33 | 0.31 | 0.33 | 0.33 |
-| Human heart | Patient group | 0.46 | 0.79 | 0.76 | 0.81 | **0.84** | 0.73 | 0.53 | 0.52 |
+| Dataset | Task | Chance | Composition only | `euclidean` | `random_walk` | `rw`, `unit_diagonal` |
+|---|---|---|---|---|---|---|
+| Synthetic | Arrangement, fixed composition | 0.2 | 0.25 | **0.89** | 0.85 | 0.84 |
+| Synthetic | Arrangement, varied composition | 0.2 | 0.22 | 0.37 | **0.72** | **0.72** |
+| Synthetic | ... + boundary label noise (30%) | 0.2 | 0.23 | 0.37 | **0.71** | **0.71** |
+| Synthetic | ... + random label noise (15%) | 0.2 | 0.23 | 0.37 | 0.44 | **0.47** |
+| Pig esophagus | Time point | 0.40 | 0.61 | 0.59 | 0.59 | **0.63** |
+| Human cortex | Donor | 0.42 | 0.96 | 0.93 | **1.00** | **1.00** |
+| Human cortex | Adjacent section | 0.28 | 0.85 | **0.86** | **0.86** | **0.86** |
+| Human cortex | Donor, random label noise (15%) | 0.42 | 0.95 | 0.94 | **0.97** | 0.92 |
+| Human cortex | Adjacent section, random label noise (15%) | 0.28 | 0.82 | 0.84 | **0.89** | 0.72 |
+| Human cortex | Donor, random label noise (30%) | 0.42 | 0.96 | 0.93 | **0.97** | 0.89 |
+| Human cortex | Adjacent section, random label noise (30%) | 0.28 | **0.85** | 0.84 | **0.85** | 0.70 |
+| Human cortex | Donor, random crops | 0.37 | 0.61 | 0.60 | **0.72** | 0.68 |
+| Human cortex | Section, random crops | 0.13 | 0.29 | 0.30 | **0.38** | 0.33 |
+| Human heart | Patient group | 0.46 | 0.79 | 0.76 | **0.81** | 0.53 |
 
 Synthetic scores are means over 10 random datasets (standard deviations
 0.03-0.08); noise and crop scores are means over 5 random draws.
@@ -307,36 +249,36 @@ Noise is random label flips (5% or 10% of spots), or boundary jitter (30% of
 spots bordering another label take a neighbor's label). `"rw"` is
 `"random_walk"`. Best per row and size in bold.
 
-| Dataset | Alteration | Noise | Composition only | `euclidean` | `random_walk` | `npmi_heat` t=4 | `rw`, `unit_diagonal` | `rw`, `unit_diagonal`, `"log2"` |
-|---|---|---|---|---|---|---|---|---|
-| Synthetic | Niche cluster | random flips 5% | 0.50 / 0.49 | 0.55 / 0.68 | 0.62 / 0.74 | 0.56 / 0.68 | 0.95 / **1.00** | **0.96** / **1.00** |
-| Synthetic | New domain | random flips 5% | 0.61 / **0.78** | 0.57 / 0.71 | 0.55 / 0.56 | **0.64** / 0.76 | 0.50 / 0.51 | 0.51 / 0.52 |
-| Synthetic | Niche cluster | random flips 10% | 0.54 / 0.53 | 0.60 / 0.64 | 0.57 / 0.67 | 0.55 / 0.60 | **0.86** / 0.99 | **0.86** / **1.00** |
-| Synthetic | New domain | random flips 10% | 0.60 / 0.66 | **0.62** / 0.68 | 0.52 / 0.51 | 0.59 / **0.71** | 0.47 / 0.51 | 0.48 / 0.50 |
-| Synthetic | Niche cluster | boundary jitter 30% | 0.48 / 0.48 | 0.55 / 0.73 | 0.66 / 0.88 | 0.67 / 0.88 | 0.84 / **1.00** | **0.86** / **1.00** |
-| Synthetic | New domain | boundary jitter 30% | 0.59 / 0.74 | 0.66 / 0.83 | 0.93 / 0.94 | **0.94** / **0.98** | 0.61 / 0.69 | 0.65 / 0.73 |
-| Pig esophagus | Niche cluster | random flips 5% | 0.57 / 0.57 | 0.60 / 0.68 | 0.61 / 0.78 | 0.60 / 0.77 | **0.71** / 0.85 | **0.71** / **0.89** |
-| Pig esophagus | New domain | random flips 5% | 0.61 / 0.65 | 0.53 / 0.70 | 0.48 / 0.49 | **0.63** / **0.72** | 0.48 / 0.52 | 0.47 / 0.53 |
-| Pig esophagus | Niche cluster | random flips 10% | 0.47 / 0.42 | 0.46 / 0.57 | 0.52 / 0.61 | 0.50 / 0.61 | 0.65 / 0.86 | **0.67** / **0.88** |
-| Pig esophagus | New domain | random flips 10% | 0.51 / 0.57 | 0.56 / **0.69** | 0.49 / 0.50 | **0.61** / 0.67 | 0.55 / 0.51 | 0.55 / 0.51 |
-| Pig esophagus | Niche cluster | boundary jitter 30% | 0.51 / 0.43 | **0.63** / 0.77 | 0.59 / 0.88 | 0.55 / 0.75 | 0.60 / **0.96** | 0.57 / 0.93 |
-| Pig esophagus | New domain | boundary jitter 30% | 0.50 / 0.62 | **0.66** / **0.83** | 0.60 / 0.64 | 0.62 / 0.76 | 0.43 / 0.36 | 0.44 / 0.36 |
-| Human cortex | Niche cluster | random flips 5% | 0.52 / 0.53 | 0.55 / 0.75 | 0.56 / 0.69 | 0.50 / 0.59 | **0.95** / **1.00** | 0.94 / **1.00** |
-| Human cortex | New domain | random flips 5% | 0.54 / **0.71** | 0.57 / **0.71** | 0.58 / 0.60 | **0.63** / 0.68 | 0.54 / 0.58 | 0.54 / 0.58 |
-| Human cortex | Niche cluster | random flips 10% | 0.58 / 0.44 | 0.51 / 0.60 | 0.52 / 0.61 | 0.58 / 0.64 | **0.73** / **0.96** | **0.73** / **0.96** |
-| Human cortex | New domain | random flips 10% | 0.53 / **0.65** | 0.55 / 0.61 | 0.52 / 0.52 | **0.61** / 0.63 | 0.47 / 0.48 | 0.47 / 0.49 |
-| Human cortex | Niche cluster | boundary jitter 30% | 0.55 / 0.60 | 0.60 / 0.80 | 0.63 / 0.88 | 0.69 / 0.94 | **0.76** / **0.99** | **0.76** / **0.99** |
-| Human cortex | New domain | boundary jitter 30% | 0.53 / 0.69 | 0.54 / 0.77 | **1.00** / **1.00** | 0.99 / **1.00** | 0.57 / 0.67 | 0.59 / 0.70 |
-| Human heart | Niche cluster | random flips 5% | 0.56 / 0.57 | 0.57 / **0.80** | 0.61 / 0.76 | 0.58 / 0.71 | **0.63** / 0.72 | **0.63** / 0.71 |
-| Human heart | New domain | random flips 5% | **0.67** / **0.75** | 0.64 / 0.73 | 0.62 / 0.61 | 0.61 / 0.70 | 0.57 / 0.57 | 0.57 / 0.58 |
-| Human heart | Niche cluster | random flips 10% | 0.59 / 0.50 | 0.54 / 0.69 | **0.63** / **0.71** | 0.53 / 0.64 | 0.56 / 0.61 | 0.58 / 0.63 |
-| Human heart | New domain | random flips 10% | 0.52 / **0.69** | **0.59** / 0.64 | 0.56 / 0.61 | 0.51 / 0.60 | 0.47 / 0.51 | 0.50 / 0.55 |
-| Human heart | Niche cluster | boundary jitter 30% | 0.55 / 0.51 | **0.57** / 0.61 | **0.57** / **0.72** | 0.51 / 0.60 | 0.52 / **0.72** | 0.51 / 0.71 |
-| Human heart | New domain | boundary jitter 30% | **0.75** / **0.84** | 0.58 / 0.64 | 0.63 / 0.69 | 0.54 / 0.63 | 0.53 / 0.53 | 0.53 / 0.52 |
+| Dataset | Alteration | Noise | Composition only | `euclidean` | `random_walk` | `rw`, `unit_diagonal` |
+|---|---|---|---|---|---|---|
+| Synthetic | Niche cluster | random flips 5% | 0.50 / 0.49 | 0.55 / 0.68 | 0.62 / 0.74 | **0.95** / **1.00** |
+| Synthetic | New domain | random flips 5% | **0.61** / **0.78** | 0.57 / 0.71 | 0.55 / 0.56 | 0.50 / 0.51 |
+| Synthetic | Niche cluster | random flips 10% | 0.54 / 0.53 | 0.60 / 0.64 | 0.57 / 0.67 | **0.86** / **0.99** |
+| Synthetic | New domain | random flips 10% | 0.60 / 0.66 | **0.62** / **0.68** | 0.52 / 0.51 | 0.47 / 0.51 |
+| Synthetic | Niche cluster | boundary jitter 30% | 0.48 / 0.48 | 0.55 / 0.73 | 0.66 / 0.88 | **0.84** / **1.00** |
+| Synthetic | New domain | boundary jitter 30% | 0.59 / 0.74 | 0.66 / 0.83 | **0.93** / **0.94** | 0.61 / 0.69 |
+| Pig esophagus | Niche cluster | random flips 5% | 0.57 / 0.57 | 0.60 / 0.68 | 0.61 / 0.78 | **0.71** / **0.85** |
+| Pig esophagus | New domain | random flips 5% | **0.61** / 0.65 | 0.53 / **0.70** | 0.48 / 0.49 | 0.48 / 0.52 |
+| Pig esophagus | Niche cluster | random flips 10% | 0.47 / 0.42 | 0.46 / 0.57 | 0.52 / 0.61 | **0.65** / **0.86** |
+| Pig esophagus | New domain | random flips 10% | 0.51 / 0.57 | **0.56** / **0.69** | 0.49 / 0.50 | 0.55 / 0.51 |
+| Pig esophagus | Niche cluster | boundary jitter 30% | 0.51 / 0.43 | **0.63** / 0.77 | 0.59 / 0.88 | 0.60 / **0.96** |
+| Pig esophagus | New domain | boundary jitter 30% | 0.50 / 0.62 | **0.66** / **0.83** | 0.60 / 0.64 | 0.43 / 0.36 |
+| Human cortex | Niche cluster | random flips 5% | 0.52 / 0.53 | 0.55 / 0.75 | 0.56 / 0.69 | **0.95** / **1.00** |
+| Human cortex | New domain | random flips 5% | 0.54 / **0.71** | 0.57 / **0.71** | **0.58** / 0.60 | 0.54 / 0.58 |
+| Human cortex | Niche cluster | random flips 10% | 0.58 / 0.44 | 0.51 / 0.60 | 0.52 / 0.61 | **0.73** / **0.96** |
+| Human cortex | New domain | random flips 10% | 0.53 / **0.65** | **0.55** / 0.61 | 0.52 / 0.52 | 0.47 / 0.48 |
+| Human cortex | Niche cluster | boundary jitter 30% | 0.55 / 0.60 | 0.60 / 0.80 | 0.63 / 0.88 | **0.76** / **0.99** |
+| Human cortex | New domain | boundary jitter 30% | 0.53 / 0.69 | 0.54 / 0.77 | **1.00** / **1.00** | 0.57 / 0.67 |
+| Human heart | Niche cluster | random flips 5% | 0.56 / 0.57 | 0.57 / **0.80** | 0.61 / 0.76 | **0.63** / 0.72 |
+| Human heart | New domain | random flips 5% | **0.67** / **0.75** | 0.64 / 0.73 | 0.62 / 0.61 | 0.57 / 0.57 |
+| Human heart | Niche cluster | random flips 10% | 0.59 / 0.50 | 0.54 / 0.69 | **0.63** / **0.71** | 0.56 / 0.61 |
+| Human heart | New domain | random flips 10% | 0.52 / **0.69** | **0.59** / 0.64 | 0.56 / 0.61 | 0.47 / 0.51 |
+| Human heart | Niche cluster | boundary jitter 30% | 0.55 / 0.51 | **0.57** / 0.61 | **0.57** / **0.72** | 0.52 / **0.72** |
+| Human heart | New domain | boundary jitter 30% | **0.75** / **0.84** | 0.58 / 0.64 | 0.63 / 0.69 | 0.53 / 0.53 |
 
 `unit_diagonal=True` makes `"random_walk"` far more sensitive to a rare cell
 type changing niche, but less to a new domain of a common label, which plain
-`"random_walk"` and `"npmi_heat"` detect best when noise is at boundaries.
+`"random_walk"` detects well when noise is at boundaries.
 
 - **Synthetic**: generated tissue sections of random size, shape and
   orientation with 4 labels, in 6 arrangements (5 sections each): two layer

@@ -14,12 +14,9 @@ SETTINGS = {
     "composition only": None,
     "euclidean (default)": {},
     "random_walk": {"metric": "random_walk"},
-    "npmi_heat t=4": {"metric": "npmi_heat", "t": 4},
-    "npmi_heat t=16": {"metric": "npmi_heat", "t": 16},
     "moran": {"metric": "moran"},
     "moran, exact tail": {"metric": "moran", "exact_tail": True},
     "rw, unit diagonal": {"metric": "random_walk", "unit_diagonal": True},
-    "rw, unit diag + log2": {"metric": "random_walk", "unit_diagonal": True, "transform": "log2"},
 }
 
 

@@ -12,7 +12,7 @@ fixed composition, composition varying between samples, and varying
 composition with boundary or random label noise.
 
 --alternatives also scores features that were tried and not added to the
-package (WL hashes, PPMI, multi-scale walks without NPMI, the spectral gap of
+package (WL hashes, PPMI, multi-scale walks, the spectral gap of
 the label graph, NPMI averaged over several walk lengths, random_walk on
 heat-diffused contacts, and comparing where steps that leave a label land
 together with the probability of staying, on direct or heat-diffused contacts).
@@ -26,7 +26,7 @@ import scipy.sparse as sp
 from scipy.sparse.linalg import expm_multiply
 
 from common import SETTINGS, per_query, similarity, sqrt_js
-from friendlyspots.similarity import _graph, _heat, _js, _random_walk_distance
+from friendlyspots.similarity import _graph, _js, _random_walk_distance
 
 HEX_OFFSETS = [(0, -2), (0, 2), (-1, -1), (-1, 1), (1, -1), (1, 1)]
 K = 4
@@ -182,9 +182,10 @@ def spectral_gap(m):
 
 
 def heat(sample, t):
-    """Label-by-label heat after diffusing labels for time t, as npmi_heat uses."""
+    """Label-by-label heat after diffusing each label over the spot graph for time t."""
     onehot, a = _graph(sample.assign(label=sample["label"].astype(str)), [str(k) for k in range(K)])
-    return _heat(onehot, a, t)
+    # Clipped as expm_multiply can return tiny negative values
+    return np.maximum(onehot.T @ expm_multiply(-t * laplacian(a), onehot.toarray()), 0)
 
 
 def exit_distance(a, b, stay=True):
@@ -222,8 +223,9 @@ ALTERNATIVES = {
     "spectral gap": (lambda s: spectral_gap(walks(s, 1)), lambda a, b: abs(a - b)),
     "NPMI mean of k=1,2,4,8": (lambda s: [walks(s, k) for k in (1, 2, 4, 8)],
                                lambda a, b: np.mean([np.sqrt(np.mean((npmi(x) - npmi(y)) ** 2)) for x, y in zip(a, b)])),
-    "random_walk on heat t=1": (lambda s: heat(s, 1), _random_walk_distance),
-    "random_walk on heat t=4": (lambda s: heat(s, 4), _random_walk_distance),
+    # Self loops as random_walk adds them, so every row is a distribution
+    "random_walk on heat t=1": (lambda s: heat(s, 1) + np.eye(K), _random_walk_distance),
+    "random_walk on heat t=4": (lambda s: heat(s, 4) + np.eye(K), _random_walk_distance),
     "exit + stay": (contacts, exit_distance),
     "exit + stay, heat t=4": (lambda s: heat(s, 4), exit_distance),
 }
@@ -269,7 +271,7 @@ def main():
         print(f"{name:24}" + "".join(
             f"{np.mean(scores[c, name]):>15.2f} ({np.std(scores[c, name]):.2f})" for c in CONDITIONS))
 
-    show = [m for m in ("random_walk", "npmi_heat t=4", "rw, unit diagonal", "rw, unit diag + log2") if m in methods]
+    show = [m for m in ("euclidean (default)", "random_walk", "moran", "rw, unit diagonal") if m in methods]
     print("\nper-class mAP, varied composition")
     print(f"{'class':16}" + "".join(f"{m:>22}" for m in show))
     for cls in CLASSES:
