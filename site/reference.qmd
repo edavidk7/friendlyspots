@@ -1,0 +1,62 @@
+---
+title: "Reference"
+---
+
+## `spatial_similarity()`
+
+Spatial similarity between spatial transcriptomics samples.
+
+::: {.panel-tabset group="language"}
+## R
+
+```r
+spatial_similarity(samples, normalize = TRUE, pools = NULL)
+```
+
+## Python
+
+```python
+spatial_similarity(samples, normalize=True, pools=None)
+```
+:::
+
+### Arguments
+
+`samples`
+: Named list (R) or dict (Python) of data frames, one per sample, with columns
+  `array_row`, `array_col` (Visium array coordinates) and `label`.
+
+`normalize`
+: Divide each sample's connection counts by their total, so that samples with
+  different numbers of spots can be compared. With `normalize = FALSE`, raw
+  counts are compared instead.
+
+`pools`
+: Optional named list (R) or dict (Python) mapping pool names to sample names.
+  Connection counts are summed within each pool before comparing, e.g.
+  `list(group_1 = c("sample_1", "sample_2"), group_2 = "sample_3")` in R or
+  `{"group_1": ["sample_1", "sample_2"], "group_2": ["sample_3"]}` in Python.
+
+### Value
+
+A symmetric matrix (R) or DataFrame (Python) of similarities, with rows and
+columns named by sample (or pool) in input order. Similarities lie in \[0, 1\]:
+1 = identical, 0 = least similar pair. With `normalize = TRUE`, samples with no
+neighbouring spots get `NA` (R) or `NaN` (Python).
+
+### Details
+
+For each sample, every spot is paired with each of its six hexagonal
+neighbours, and the pairs are counted by label (e.g. how often a `Neuron` spot
+borders an `Astrocyte` spot). These counts form one vector per sample, which is
+optionally pooled and normalised. Similarity is `1 - d / max(d)`, where `d` is
+the Euclidean distance between two samples' vectors.
+
+### Warnings
+
+- Labels that are missing values (`NA` in R; `NaN` or `None` in Python) are
+  kept as a label called `"NA"`, with a warning. Files read with `read.csv()`
+  or `pd.read_csv()` turn text such as "NA" into missing values; read them with
+  `na.strings = character(0)` or `keep_default_na=False` to keep the text.
+- With `normalize = TRUE`, samples with no neighbouring spots are named in a
+  warning, and their similarities are `NA`.

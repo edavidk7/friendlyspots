@@ -1,0 +1,313 @@
+---
+toc: false
+knitr:
+  opts_chunk:
+    collapse: true
+    comment: "#>"
+---
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/george-hall-ucl/friendlyspots/main/assets/logo.gif" width="210" alt="friendlyspots logo">
+</p>
+
+`friendlyspots` computes similarity between spatial transcriptomics samples
+based on which labels (e.g. cell types) border one another. Available for R
+and Python.
+
+`friendlyspots` is only compatible with original (non-HD) Visium.
+
+## Installation
+
+::: {.panel-tabset group="language"}
+## R
+
+```r
+remotes::install_github("george-hall-ucl/friendlyspots", subdir = "R")
+```
+
+Requires only base R.
+
+## Python
+
+```bash
+pip install "git+https://github.com/george-hall-ucl/friendlyspots#subdirectory=python"
+```
+
+Requires `pandas` and `numpy`.
+:::
+
+## Usage
+
+Give `spatial_similarity()` one data frame per sample, with columns for
+`array_row`, `array_col` and `label`:
+
+::: {.panel-tabset group="language"}
+## R
+
+```r
+library(friendlyspots)
+
+samples <- list(sample_1 = df1, sample_2 = df2, sample_3 = df3)
+sim <- spatial_similarity(samples)
+```
+
+## Python
+
+```python
+from friendlyspots import spatial_similarity
+
+samples = {"sample_1": df1, "sample_2": df2, "sample_3": df3}
+sim = spatial_similarity(samples)
+```
+:::
+
+This returns a sample × sample matrix of similarity scores: 1 = identical,
+0 = least similar pair. See the [example](#example) below and the
+[Reference](reference.qmd) for all options.
+
+## Example
+
+This example uses four mouse brain sections from 10x Genomics (two anterior,
+two posterior), with each spot labelled by its most enriched of five marker
+genes.
+
+::: {.panel-tabset group="language"}
+## R
+
+```{r}
+#| label: r-setup
+#| code-fold: true
+#| code-summary: "Setup: download and label the data, define plotting helpers"
+#| message: false
+#| warning: false
+#| results: hide
+# Requires Seurat, hdf5r and ggplot2.
+library(Seurat)
+library(ggplot2)
+
+markers <- c("Mbp", "Slc17a7", "Penk", "Hpca", "Gabra6")
+ids <- c(anterior_1 = "V1_Mouse_Brain_Sagittal_Anterior",
+         anterior_2 = "V1_Mouse_Brain_Sagittal_Anterior_Section_2",
+         posterior_1 = "V1_Mouse_Brain_Sagittal_Posterior",
+         posterior_2 = "V1_Mouse_Brain_Sagittal_Posterior_Section_2")
+cache <- tools::R_user_dir("friendlyspots", "cache")
+
+seurat_objects <- lapply(ids, function(id) {
+  dir <- file.path(cache, id)
+  if (!dir.exists(file.path(dir, "spatial"))) {
+    url <- paste0("https://cf.10xgenomics.com/samples/spatial-exp/1.1.0/",
+                  id, "/", id)
+    dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+    download.file(paste0(url, "_filtered_feature_bc_matrix.h5"),
+                  file.path(dir, "filtered_feature_bc_matrix.h5"))
+    download.file(paste0(url, "_spatial.tar.gz"), tar <- tempfile())
+    untar(tar, exdir = dir)
+  }
+  image <- Read10X_Image(file.path(dir, "spatial"), image.type = "VisiumV1")
+  Load10X_Spatial(dir, image = image)
+})
+
+labels <- lapply(seurat_objects, function(cells) {
+  coords <- cells@images[[1]]@coordinates
+  counts <- GetAssayData(cells, layer = "counts")[markers, rownames(coords)]
+  counts <- as.matrix(counts)
+  markers[max.col(t(counts / rowMeans(counts)), ties.method = "first")]
+})
+
+plot_slices <- function(samples) {
+  spots <- do.call(rbind, Map(cbind, sample = names(samples), samples))
+  ggplot(spots, aes(.data$array_col, -.data$array_row, color = .data$label)) +
+    geom_point(size = 1.1, stroke = 0) +
+    facet_wrap(~sample, nrow = 1) +
+    coord_fixed(sqrt(3)) +
+    scale_color_manual(values = c("#CC79A7", "#D55E00", "#0072B2", "#F0E442",
+                                  "#009E73")) +
+    guides(color = guide_legend(override.aes = list(size = 4))) +
+    theme_void(base_size = 14) +
+    theme(legend.position = "bottom", legend.title = element_blank())
+}
+
+plot_similarity <- function(sim) {
+  df <- as.data.frame(as.table(sim))
+  lower <- df[as.integer(df$Var1) >= as.integer(df$Var2), ]
+  ggplot(lower, aes(.data$Var1, .data$Var2, fill = .data$Freq)) +
+    geom_tile() +
+    geom_text(aes(label = sprintf("%.2f", .data$Freq),
+                  color = .data$Freq < 0.1),
+              size = 5, fontface = "bold", show.legend = FALSE) +
+    scale_color_manual(values = c("black", "white")) +
+    scale_fill_viridis_c(option = "inferno", name = "Similarity") +
+    coord_fixed() +
+    theme_minimal(base_size = 14) +
+    theme(axis.title = element_blank(),
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          text = element_text(face = "bold"))
+}
+```
+
+Each sample is a data frame of spot array coordinates and labels:
+
+```{r}
+#| label: r-samples
+library(friendlyspots)
+
+samples <- Map(function(cells, label) {
+  coords <- cells@images[[1]]@coordinates
+  data.frame(array_row = coords$row, array_col = coords$col, label = label,
+             row.names = rownames(coords))
+}, seurat_objects, labels)
+head(samples$anterior_1)
+```
+
+```{r}
+#| label: r-slices
+#| fig-dpi: 300
+#| fig-retina: 1
+#| fig-width: 10
+#| fig-height: 3.5
+plot_slices(samples)
+```
+
+```{r}
+#| label: r-similarity
+#| fig-width: 6
+#| fig-height: 5
+#| out-width: 60%
+sim <- spatial_similarity(samples)
+round(sim, 2)
+plot_similarity(sim)
+```
+
+## Python
+
+```{python}
+#| label: py-setup
+#| jupyter_compat: true
+#| code-fold: true
+#| code-summary: "Setup: download and label the data, define plotting helpers"
+#| message: false
+#| warning: false
+#| results: hide
+# Requires squidpy, matplotlib and seaborn.
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+import squidpy as sq
+
+markers = ["Mbp", "Slc17a7", "Penk", "Hpca", "Gabra6"]
+ids = {
+    "anterior_1": "V1_Mouse_Brain_Sagittal_Anterior",
+    "anterior_2": "V1_Mouse_Brain_Sagittal_Anterior_Section_2",
+    "posterior_1": "V1_Mouse_Brain_Sagittal_Posterior",
+    "posterior_2": "V1_Mouse_Brain_Sagittal_Posterior_Section_2",
+}
+cache = Path.home() / ".cache" / "friendlyspots"
+
+adatas = {}
+labels = {}
+for name, sample_id in ids.items():
+    adata = sq.datasets.visium(sample_id, base_dir=cache)
+    adata.var_names_make_unique()
+    counts = adata[:, markers].X.toarray()
+    top = (counts / counts.mean(axis=0)).argmax(axis=1)
+    adatas[name] = adata
+    labels[name] = np.array(markers)[top]
+
+
+def plot_slices(samples):
+    palette = ["#CC79A7", "#D55E00", "#0072B2", "#F0E442", "#009E73"]
+    colors = dict(zip(sorted(markers), palette))
+    fig, axes = plt.subplots(1, len(samples), layout="constrained")
+    for ax, (name, df) in zip(axes, samples.items()):
+        ax.scatter(
+            df["array_col"],
+            -df["array_row"] * np.sqrt(3),
+            c=df["label"].map(colors),
+            s=3,
+            linewidths=0,
+        )
+        ax.set_title(name)
+        ax.set_aspect("equal")
+        ax.axis("off")
+    handles = [
+        plt.Line2D([], [], marker="o", linestyle="", color=color, label=label)
+        for label, color in colors.items()
+    ]
+    fig.legend(
+        handles=handles,
+        loc="outside lower center",
+        ncol=len(colors),
+        frameon=False,
+    )
+    plt.show()
+
+
+def plot_similarity(sim):
+    style = {"font.size": 14, "font.weight": "bold", "figure.autolayout": True}
+    with plt.rc_context(style):
+        ax = sns.heatmap(
+            sim,
+            mask=np.tril(np.ones(sim.shape, dtype=bool), k=-1),
+            annot=True,
+            fmt=".2f",
+            cmap="inferno",
+            vmin=0,
+            vmax=1,
+            square=True,
+            cbar_kws={"label": "Similarity"},
+        )
+        ax.invert_yaxis()
+        plt.xticks(rotation=45, ha="right")
+    plt.show()
+```
+
+Each sample is a DataFrame of spot array coordinates and labels:
+
+```{python}
+#| label: py-samples
+#| jupyter_compat: true
+from friendlyspots import spatial_similarity
+
+samples = {
+    name: adata.obs[["array_row", "array_col"]].assign(label=labels[name])
+    for name, adata in adatas.items()
+}
+print(samples["anterior_1"].head())
+```
+
+```{python}
+#| label: py-slices
+#| fig-dpi: 300
+#| fig-retina: 1
+#| jupyter_compat: true
+#| fig-width: 10
+#| fig-height: 3.5
+plot_slices(samples)
+```
+
+```{python}
+#| label: py-similarity
+#| jupyter_compat: true
+#| fig-width: 6
+#| fig-height: 5
+#| out-width: 60%
+sim = spatial_similarity(samples)
+print(sim.round(2))
+plot_similarity(sim)
+```
+:::
+
+The anterior sections are most similar to each other, as are the posterior
+sections, while anterior and posterior sections are dissimilar.
+
+## Citation
+
+The algorithm and original implementation of `friendlyspots` are based on the
+methodology in:
+
+- Durkin _et al_. "Functional integration of an autologous engineered esophagus
+  in a large-animal model." _Nature Biotechnology_ (2026).
+- Budinger _et al_. "An in vivo and in vitro spatiotemporal profile of human
+  midbrain development." _Nature Communications_ (2026).

@@ -1,5 +1,7 @@
 .claude/
 __pycache__/
 docs/
-.DS_store
+.DS_Store
 python/friendlyspots.egg-info
+site/_site/
+site/.quarto/
