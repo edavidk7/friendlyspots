@@ -42,14 +42,12 @@ among the samples compared; other metrics give scores that don't depend on
 which other samples are compared (see `metric` below).
 
 Which metric to use: `"random_walk"` discounts how common each label is and
-has no parameters, and `"moran"` compares each sample with random placement of
-its own labels, separating composition from arrangement, with scores that
-don't depend on sample size. To detect a rare cell type changing where it is,
-use `"random_walk"` with `unit_diagonal=True`, which did best at that in the
-[benchmarks](#benchmarks), though it also makes noise in rare labels count for
-more. The default, `"euclidean"`, is kept for compatibility with earlier
-results, but mostly reflects how much of each label samples have rather than
-how labels are arranged.
+has no parameters. To detect a rare cell type changing where it is, use it with
+`unit_diagonal=True`, which did best at that in the [benchmarks](#benchmarks),
+though it also makes noise in rare labels count for more. The default,
+`"euclidean"`, is kept for compatibility with earlier results, but mostly
+reflects how much of each label samples have rather than how labels are
+arranged.
 
 ### Options
 
@@ -62,25 +60,15 @@ how labels are arranged.
   $C_{ij} / \sqrt{C_{ii} C_{jj}}$, so every label's connections with itself are
   1, removing how much of each label there is. Rare labels then count for more,
   and so does noise in them. For `"euclidean"` and `"random_walk"`.
-- `metric`: how connection counts are compared. All metrics other than the
-  default give absolute scores, which don't depend on which other samples are
-  compared, and require `normalize=True`.
+- `metric`: how connection counts are compared. `"random_walk"` gives
+  absolute scores, which don't depend on which other samples are compared, and
+  requires `normalize=True`.
   - `"euclidean"` (default): Euclidean distance between connection
     proportions, rescaled so the least similar pair scores 0.
   - `"random_walk"`: compares which labels each label borders, relative to its
     own total, so differences in how common each label is matter less. Simple,
     with no parameters. A label missing from one sample counts as a
     difference, in proportion to how common it is in the other.
-  - `"moran"`: compares how far each pair of labels' joins (touching spots)
-    are from what random placement of the sample's own labels on its own spots
-    would give, as Moran's join-count z-scores, by the angle between samples'
-    z-score vectors. Conditions on composition and on the spots' layout, and
-    doesn't depend on sample size. Unrelated samples score about 0.5, opposite
-    ones 0.
-- `exact_tail=True`: for `"moran"`, score label pairs with fewer than 5
-  expected joins by their exact tail probability rather than a normal
-  approximation, so a chance join between two spots of a rare label doesn't
-  count as a large deviation.
 
 ### How the metrics work
 
@@ -149,47 +137,6 @@ every label, so $U$ no longer reflects how many spots each label has, only how
 labels' connections compare with their own connections with themselves. A
 label with few spots has a small $\tilde C_{ii}$, so its connections are
 scaled up, along with any noise in them.
-
-#### `"moran"`
-
-For labels $a \le b$, the join count $J_{ab}$ is the number of edges joining a
-spot of label $a$ to one of label $b$: $J_{ab} = C_{ab}$ for $a \ne b$, and
-$J_{aa} = C_{aa} / 2$, as $C$ counts each edge from both ends. Moran's (1948)
-non-free null places the sample's own labels on its own spots uniformly at
-random, keeping the number of spots $n_a$ of each label. With $n$ spots, $m$
-edges, $d_p$ the number of neighbors of spot $p$, $k_2 = \sum_p d_p (d_p - 1)$
-the ordered pairs of distinct edges sharing a spot, and the falling factorial
-$x^{(r)} = x (x - 1) \cdots (x - r + 1)$, the mean and second moment of a join
-count are (Cliff & Ord 1981)
-
-$$E[J_{aa}] = m \frac{n_a^{(2)}}{n^{(2)}}, \qquad E[J_{aa}^2] = E[J_{aa}] + k_2 \frac{n_a^{(3)}}{n^{(3)}} + \left(m (m - 1) - k_2\right) \frac{n_a^{(4)}}{n^{(4)}},$$
-
-$$E[J_{ab}] = 2 m \frac{n_a n_b}{n^{(2)}}, \qquad E[J_{ab}^2] = E[J_{ab}] + k_2 \frac{n_a n_b (n_a + n_b - 2)}{n^{(3)}} + 4 \left(m (m - 1) - k_2\right) \frac{n_a^{(2)} n_b^{(2)}}{n^{(4)}}.$$
-
-$E[J^2]$ sums over ordered pairs of edges: an edge with itself ($m$ pairs, 2
-spots), two edges sharing a spot ($k_2$ pairs, 3 spots) and two disjoint edges
-(4 spots), each with the probability that those spots get the required labels.
-With $\mathrm{Var}(J) = E[J^2] - E[J]^2$, each label pair gets the z-score
-
-$$z_{ab} = \frac{J_{ab} - E[J_{ab}]}{\sqrt{\mathrm{Var}(J_{ab})}},$$
-
-positive when $a$ and $b$ touch more than random placement predicts and
-negative when less, whatever the composition. Samples $u$ and $v$ are compared
-by the angle between their vectors $\mathbf{z}$ of all pairs $a \le b$:
-
-$$\mathrm{sim}(u, v) = 1 - \frac{1}{\pi} \arccos \frac{\mathbf{z}_u \cdot \mathbf{z}_v}{\lVert \mathbf{z}_u \rVert \, \lVert \mathbf{z}_v \rVert}.$$
-
-The same arrangement on a larger sample gives z-scores larger by about
-$\sqrt{m}$, which the angle ignores, and no other samples are involved. With
-`pools`, observed joins, means and variances are each summed over a pool's
-samples before standardizing.
-
-When a pair expects few joins, $J$ is close to Poisson, and the normal z-score
-overstates deviations: two touching spots of a label with 2 spots in a section
-of $n = 3000$ expect $E \approx 6 / n$ joins, giving $z \approx 22$, as much as
-a large real pattern. With `exact_tail=True`, pairs with $E < 5$ instead get
-$z = \Phi^{-1}\left(P(J' < J) + \tfrac{1}{2} P(J' = J)\right)$ for $J' \sim
-\mathrm{Poisson}(E)$, about 3.1 in this example.
 
 ### Benchmarks
 

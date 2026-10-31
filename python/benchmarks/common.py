@@ -14,8 +14,6 @@ SETTINGS = {
     "composition only": None,
     "euclidean (default)": {},
     "random_walk": {"metric": "random_walk"},
-    "moran": {"metric": "moran"},
-    "moran, exact tail": {"metric": "moran", "exact_tail": True},
     "rw, unit diagonal": {"metric": "random_walk", "unit_diagonal": True},
 }
 

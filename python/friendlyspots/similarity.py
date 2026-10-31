@@ -3,15 +3,13 @@ import warnings
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-from scipy.stats import norm, poisson
 
 # Hexagonal Visium neighbors in array coordinates.
 HEX_OFFSETS = [(0, -2), (0, 2), (-1, -1), (-1, 1), (1, -1), (1, 1)]
-METRICS = ("euclidean", "random_walk", "moran")
+METRICS = ("euclidean", "random_walk")
 
 
-def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", unit_diagonal=False,
-                       exact_tail=False):
+def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", unit_diagonal=False):
     """Spatial similarity between spatial transcriptomics samples.
 
     samples: dict of DataFrames with columns array_row, array_col (hexagonal
@@ -19,9 +17,9 @@ def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", 
     normalize: divide each sample's connection counts by their total.
     pools: optional dict mapping pool names to lists of sample names;
         connection counts are summed within each pool.
-    metric: how connection counts are compared. All metrics except
-        "euclidean" give absolute scores that don't depend on which other
-        samples are compared, and require normalize=True.
+    metric: how connection counts are compared. "random_walk" gives
+        absolute scores that don't depend on which other samples are
+        compared, and requires normalize=True.
         - "euclidean": 1 - distance / max distance, so the least similar pair
           scores 0.
         - "random_walk": compares, for each label, the distribution of its
@@ -30,22 +28,10 @@ def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", 
           label gets one self loop, so a label absent from a sample always
           stays put there, and counts as different from its neighbors in a
           sample that has it.
-        - "moran": compares how far each label pair's joins (pairs of
-          touching spots) are from what random placement of the sample's own
-          labels on its own spots would give, as z-scores under Moran's
-          (1948) non-free null, by the angle between samples' z-score
-          vectors. Conditions on composition and on the spots' layout, and
-          doesn't depend on sample size. Unrelated samples score about 0.5,
-          opposite ones 0.
-    unit_diagonal: for metric="euclidean" and "random_walk", scale each
-        sample's connection counts C (with one self loop per label added) to
-        C_ij / sqrt(C_ii C_jj), so each label's connections with itself are
-        1, removing how much of each label there is. Makes rare labels count
-        for more, so also their noise.
-    exact_tail: for metric="moran", score label pairs with fewer than 5
-        expected joins by their exact (Poisson, mid-p) tail probability rather
-        than a normal approximation, so a chance join between two spots of a
-        rare label doesn't count as a large deviation.
+    unit_diagonal: scale each sample's connection counts C (with one self
+        loop per label added) to C_ij / sqrt(C_ii C_jj), so each label's
+        connections with itself are 1, removing how much of each label there
+        is. Makes rare labels count for more, so also their noise.
     Returns a symmetric DataFrame of similarities in [0, 1], or NaN for
     samples with no neighboring spots when normalize=True.
     """
@@ -53,10 +39,6 @@ def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", 
         raise ValueError(f"metric must be one of {', '.join(METRICS)}")
     if metric != "euclidean" and not normalize:
         raise ValueError(f"metric='{metric}' requires normalize=True")
-    if unit_diagonal and metric == "moran":
-        raise ValueError("unit_diagonal changes connection counts, which metric='moran' doesn't compare")
-    if exact_tail and metric != "moran":
-        raise ValueError("exact_tail is only used with metric='moran'")
     if any(s["label"].isna().any() for s in samples.values()):
         # e.g. pd.read_csv() reads a label literally called "NA" as missing
         warnings.warn(
@@ -76,13 +58,12 @@ def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", 
 
     counts = pool(pd.DataFrame({name: (x.T @ a @ x).toarray().ravel() for name, (x, a) in graphs.items()}).T)
     empty = (counts.sum(axis=1) == 0).to_numpy()
-    if metric in ("euclidean", "random_walk"):
-        # random_walk adds self loops; they must go on counts rather than proportions
-        prepared = np.stack([
-            _prepare_counts(c.reshape(len(labels), len(labels)), metric == "random_walk", unit_diagonal).ravel()
-            for c in counts.to_numpy(dtype=float)
-        ]) if len(counts) else counts.to_numpy(dtype=float)
-        counts = pd.DataFrame(prepared, index=counts.index, columns=counts.columns)
+    # random_walk adds self loops; they must go on counts rather than proportions
+    prepared = np.stack([
+        _prepare_counts(c.reshape(len(labels), len(labels)), metric == "random_walk", unit_diagonal).ravel()
+        for c in counts.to_numpy(dtype=float)
+    ]) if len(counts) else counts.to_numpy(dtype=float)
+    counts = pd.DataFrame(prepared, index=counts.index, columns=counts.columns)
     if normalize:
         if empty.any():
             warnings.warn(
@@ -92,23 +73,6 @@ def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", 
         counts = counts.div(counts.sum(axis=1), axis=0)
         counts[empty] = np.nan
     x = counts.to_numpy(dtype=float)
-    if metric == "moran":
-        moments = {name: _join_moments(onehot, a) for name, (onehot, a) in graphs.items()}
-        # Observed joins, their means and variances each add up over a pool's independent samples
-        obs, mean, var = (pool(pd.DataFrame({name: mom[k] for name, mom in moments.items()}).T).to_numpy() for k in range(3))
-        z = np.stack([_join_z(*v, exact_tail) for v in zip(obs, mean, var)])
-        norms = np.linalg.norm(z, axis=1)
-        flat = (norms == 0) & ~empty
-        if flat.any():
-            warnings.warn(
-                "Similarities are NA for samples whose joins are exactly as random placement predicts, "
-                "e.g. with a single label: " + ", ".join(map(str, counts.index[flat]))
-            )
-        with np.errstate(divide="ignore", invalid="ignore"):
-            unit = z / norms[:, None]
-            sim = 1 - np.arccos(np.clip(unit @ unit.T, -1, 1)) / np.pi
-        sim[norms == 0, :] = sim[:, norms == 0] = np.nan
-        return pd.DataFrame(sim, index=counts.index, columns=counts.index)
     if metric == "random_walk":
         m = prepared.reshape(len(prepared), len(labels), len(labels))
         d = np.zeros((len(m), len(m)))
@@ -143,55 +107,6 @@ def _prepare_counts(c, self_loops, unit_diagonal):
         d = np.sqrt(np.diag(c))
         c = c / np.outer(d, d)
     return c
-
-
-def _falling(x, r):
-    """Falling factorial x (x - 1) ... (x - r + 1)."""
-    return np.prod([x - i for i in range(r)], axis=0)
-
-
-def _join_moments(onehot, adjacency):
-    """Join counts of label pairs a <= b, with their mean and variance under Moran's non-free null.
-
-    The null places the sample's labels on its spots uniformly at random,
-    keeping the number of spots of each label (Cliff & Ord 1981). With m
-    edges and k2 = sum of d (d - 1) over spot degrees d, the ordered pairs of
-    distinct edges sharing a spot, the mean and second moment of a join count
-    follow from the probabilities that 2, 3 or 4 given spots have given labels.
-    """
-    c = (onehot.T @ adjacency @ onehot).toarray()
-    deg = np.asarray(adjacency.sum(axis=1)).ravel()
-    n, m, k2 = len(deg), deg.sum() / 2, (deg * (deg - 1)).sum()
-    disjoint = m * (m - 1) - k2  # ordered pairs of edges sharing no spot
-    count = np.asarray(onehot.sum(axis=0)).ravel()
-    a, b = np.triu_indices(len(count))
-    na, nb = count[a], count[b]
-    # Probability that r given spots get given labels is falling(n_a, .) ... / falling(n, r)
-    ratio = lambda num, r: num / _falling(n, r) if _falling(n, r) > 0 else np.zeros_like(num)
-    same = a == b
-    mean = np.where(same, m * ratio(_falling(na, 2), 2), 2 * m * ratio(na * nb, 2))
-    second = mean + np.where(
-        same,
-        k2 * ratio(_falling(na, 3), 3) + disjoint * ratio(_falling(na, 4), 4),
-        k2 * ratio(na * nb * (na + nb - 2), 3) + 4 * disjoint * ratio(_falling(na, 2) * _falling(nb, 2), 4),
-    )
-    # Each edge joining two spots of the same label is counted twice in c
-    obs = np.where(same, c[a, b] / 2, c[a, b])
-    return obs, mean, np.maximum(second - mean**2, 0)
-
-
-def _join_z(obs, mean, var, exact_tail):
-    """z-scores of join counts; with exact_tail, from the Poisson tail for pairs with few expected joins."""
-    with np.errstate(divide="ignore", invalid="ignore"):
-        z = np.where(var > 1e-12, (obs - mean) / np.sqrt(var), 0.0)
-    if exact_tail:
-        small = (mean > 0) & (mean < 5)
-        j, e = obs[small], mean[small]
-        lower = poisson.cdf(j - 1, e) + poisson.pmf(j, e) / 2  # mid-p P(J < j) + P(J = j) / 2
-        upper = poisson.sf(j, e) + poisson.pmf(j, e) / 2
-        # Each tail mapped by the function accurate when it's tiny, so large deviations aren't capped
-        z[small] = np.where(lower < 0.5, norm.ppf(np.maximum(lower, 1e-300)), norm.isf(np.maximum(upper, 1e-300)))
-    return z
 
 
 def _random_walk_distance(a, b):
