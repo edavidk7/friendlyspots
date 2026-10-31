@@ -66,6 +66,13 @@ arranged.
   different even if their underlying spatial features are similar.
 - `pools={"group_1": ["sample_1", "sample_2"], "group_2": ["sample_3"]}`: sum
   connection counts within groups before comparing.
+- `unit_diagonal=True`: scale each sample's connection counts to
+  $C_{ij} / \sqrt{C_{ii} C_{jj}}$, so every label's connections with itself are
+  1, removing how much of each label there is. Rare labels then count for more,
+  and so does noise in them. For `"euclidean"` and `"random_walk"`.
+- `transform="log2"`: compare $\log_2(1 + x)$ of the connection counts (after
+  `unit_diagonal`), which compresses large counts while keeping 0 at 0 and a
+  unit diagonal at 1. For `"euclidean"` and `"random_walk"`.
 - `metric`: how connection counts are compared. All metrics other than the
   default give absolute scores, which don't depend on which other samples are
   compared, and require `normalize=True`.
@@ -137,6 +144,22 @@ are where they appear. $\pi_i = r_i / \sum_k r_k$ is also a stationary
 distribution of the chain ($\pi P = \pi$, as $\tilde C$ is symmetric): if
 every label can reach every other, it's the long-run share of time the walk
 spends on label $i$. The similarity is $1 - d(a, b)$.
+
+#### `unit_diagonal` and `transform`
+
+Both change each sample's connection counts before `"euclidean"` or
+`"random_walk"` compares them. With one self loop per label, $\tilde C = C + I$,
+as for `"random_walk"`, `unit_diagonal=True` uses
+
+$$U_{ij} = \frac{\tilde C_{ij}}{\sqrt{\tilde C_{ii} \, \tilde C_{jj}}},$$
+
+like turning a covariance matrix into a correlation matrix: $U_{ii} = 1$ for
+every label, so $U$ no longer reflects how many spots each label has, only how
+labels' connections compare with their own connections with themselves. A
+label with few spots has a small $\tilde C_{ii}$, so its connections are
+scaled up, along with any noise in them. `transform="log2"` then uses
+$\log_2(1 + x)$ of each entry, which keeps zeros at 0 and, after
+`unit_diagonal`, the diagonal at $\log_2 2 = 1$.
 
 #### `"npmi_heat"`
 

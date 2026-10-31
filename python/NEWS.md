@@ -6,6 +6,10 @@
     own total, discounting how common each label is.
   * `"npmi_heat"` compares how much more or less often labels are near each
     other than their abundance predicts, over a neighborhood set by `t`.
+* New `unit_diagonal` and `transform` arguments change connection counts
+  before comparing them: `unit_diagonal=True` scales them to
+  C_ij / sqrt(C_ii C_jj), removing how much of each label there is, and
+  `transform="log2"` uses log2(1 + x).
 * Benchmarks comparing the metrics on synthetic and public datasets are in
   `benchmarks/`.
 * Now requires `scipy`.

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from friendlyspots import spatial_similarity
-from friendlyspots.similarity import _npmi_distance
+from friendlyspots.similarity import _npmi_distance, _prepare_counts
 
 SAMPLES = {
     "A": pd.DataFrame({"array_row": [0, 0, 1], "array_col": [0, 2, 1], "label": ["a", "b", "a"]}),
@@ -207,16 +207,54 @@ def rotate60(sample):
     return sample.assign(array_row=rows - rows.min(), array_col=cols - cols.min() + ((rows - rows.min()) % 2 != (cols - cols.min()) % 2))
 
 
-@pytest.mark.parametrize("metric", ["euclidean", "random_walk", "npmi_heat"])
-def test_alignment_free(metric):
+@pytest.mark.parametrize("metric, options", [
+    ("euclidean", {}), ("random_walk", {}), ("npmi_heat", {}),
+    ("euclidean", {"unit_diagonal": True, "transform": "log2"}),
+    ("random_walk", {"unit_diagonal": True, "transform": "log2"}),
+])
+def test_alignment_free(metric, options):
     """Rotating, mirroring or reordering a sample's spots on the grid doesn't change its similarities."""
     s = hexagon()
     variants = {"rotated": rotate60(s), "rotated twice": rotate60(rotate60(s)),
                 "mirrored": s.assign(array_col=s["array_col"].max() - s["array_col"]), "shuffled": s.sample(frac=1, random_state=0)}
     for name, v in variants.items():
         assert len(set(zip(v["array_row"], v["array_col"]))) == len(s)
-        sim = spatial_similarity({"original": s, name: v}, metric=metric)
+        sim = spatial_similarity({"original": s, name: v}, metric=metric, **options)
         np.testing.assert_allclose(sim.to_numpy(), 1, atol=1e-9, err_msg=name)
+
+
+def test_prepare_counts():
+    """Self loops, the unit diagonal and log2(1 + x) give the expected matrices."""
+    c = np.array([[2.0, 2.0], [2.0, 0.0]])  # sample A
+    np.testing.assert_allclose(_prepare_counts(c, False, False, None), c)
+    np.testing.assert_allclose(_prepare_counts(c, True, False, None), [[3, 2], [2, 1]])
+    unit = [[1, 2 / np.sqrt(3)], [2 / np.sqrt(3), 1]]
+    np.testing.assert_allclose(_prepare_counts(c, False, True, None), unit)
+    np.testing.assert_allclose(_prepare_counts(c, True, True, None), unit)  # self loops aren't added twice
+    np.testing.assert_allclose(_prepare_counts(c, False, True, "log2"), np.log2(1 + np.array(unit)))
+    np.testing.assert_allclose(_prepare_counts(c, False, False, "log2"), [[np.log2(3), np.log2(3)], [np.log2(3), 0]])
+
+
+def test_random_walk_unit_diagonal():
+    """With unit_diagonal, random_walk compares rows of C_ij / sqrt(C_ii C_jj), with self loops."""
+    # A: C + I = [[3, 2], [2, 1]], unit diagonal [[1, 2/sqrt 3], [2/sqrt 3, 1]]
+    # B: C + I = [[3, 1], [1, 1]], unit diagonal [[1, 1/sqrt 3], [1/sqrt 3, 1]]
+    # Both labels' rows have the same total, so each is weighted 1/2
+    ua, ub = 2 / np.sqrt(3), 1 / np.sqrt(3)
+    pa, pb = np.array([1, ua]) / (1 + ua), np.array([1, ub]) / (1 + ub)
+    expected = (sqrt_js(pa, pb) + sqrt_js(pa[::-1], pb[::-1])) / 2
+    sim = spatial_similarity({"A": SAMPLES["A"], "B": SAMPLES["B"]}, metric="random_walk", unit_diagonal=True)
+    np.testing.assert_allclose(sim.loc["A", "B"], 1 - expected)
+
+
+def test_unit_diagonal_and_transform_options():
+    pair = {"A": SAMPLES["A"], "B": SAMPLES["B"]}
+    default = spatial_similarity(pair, metric="random_walk").loc["A", "B"]
+    assert spatial_similarity(pair, metric="random_walk", transform="log2").loc["A", "B"] != default
+    with pytest.raises(ValueError, match="transform must be None or 'log2'"):
+        spatial_similarity(pair, transform="log10")
+    with pytest.raises(ValueError, match="doesn't compare"):
+        spatial_similarity(pair, metric="npmi_heat", unit_diagonal=True)
 
 
 def test_pig_esophagus_paper():

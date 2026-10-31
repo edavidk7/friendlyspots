@@ -10,7 +10,8 @@ HEX_OFFSETS = [(0, -2), (0, 2), (-1, -1), (-1, 1), (1, -1), (1, 1)]
 METRICS = ("euclidean", "random_walk", "npmi_heat")
 
 
-def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", t=None):
+def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", t=None, unit_diagonal=False,
+                       transform=None):
     """Spatial similarity between spatial transcriptomics samples.
 
     samples: dict of DataFrames with columns array_row, array_col (hexagonal
@@ -39,6 +40,15 @@ def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", 
           labels present in both samples, including neighbors only one sample
           has; samples with no labels in common score 0.
     t: diffusion time for metric="npmi_heat" (default 4).
+    unit_diagonal: scale each sample's connection counts C (with one self
+        loop per label added) to C_ij / sqrt(C_ii C_jj), so each label's
+        connections with itself are 1, removing how much of each label there
+        is. Makes rare labels count for more, so also their noise.
+    transform: None, or "log2" for log2(1 + x) of the connection counts
+        (after unit_diagonal), which compresses large counts and keeps 0 at 0
+        and a unit diagonal at 1.
+        unit_diagonal and transform apply to metric="euclidean" and
+        "random_walk".
     Returns a symmetric DataFrame of similarities in [0, 1], or NaN for
     samples with no neighboring spots when normalize=True.
     """
@@ -52,6 +62,10 @@ def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", 
         t = 4 if t is None else t
         if t <= 0:
             raise ValueError("t must be positive")
+    if transform not in (None, "log2"):
+        raise ValueError("transform must be None or 'log2'")
+    if metric == "npmi_heat" and (unit_diagonal or transform is not None):
+        raise ValueError("unit_diagonal and transform change connection counts, which metric='npmi_heat' doesn't compare")
     if any(s["label"].isna().any() for s in samples.values()):
         # e.g. pd.read_csv() reads a label literally called "NA" as missing
         warnings.warn(
@@ -70,23 +84,28 @@ def spatial_similarity(samples, normalize=True, pools=None, metric="euclidean", 
         return pd.DataFrame({name: df.loc[members].sum() for name, members in pools.items()}).T
 
     counts = pool(pd.DataFrame({name: (x.T @ a @ x).toarray().ravel() for name, (x, a) in graphs.items()}).T)
-    raw = counts.to_numpy(dtype=float)
+    empty = (counts.sum(axis=1) == 0).to_numpy()
+    if metric != "npmi_heat":
+        # random_walk adds self loops; they must go on counts rather than proportions
+        prepared = np.stack([
+            _prepare_counts(c.reshape(len(labels), len(labels)), metric == "random_walk", unit_diagonal, transform).ravel()
+            for c in counts.to_numpy(dtype=float)
+        ]) if len(counts) else counts.to_numpy(dtype=float)
+        counts = pd.DataFrame(prepared, index=counts.index, columns=counts.columns)
     if normalize:
-        totals = counts.sum(axis=1)
-        empty = (totals == 0).to_numpy()
         if empty.any():
             warnings.warn(
                 "Similarities are NA for samples with no neighboring spots: "
                 + ", ".join(map(str, counts.index[empty]))
             )
-        counts = counts.div(totals, axis=0)
+        counts = counts.div(counts.sum(axis=1), axis=0)
+        counts[empty] = np.nan
     x = counts.to_numpy(dtype=float)
     if metric != "euclidean":
         if metric == "npmi_heat":
             m = pool(pd.DataFrame({name: _heat(onehot, a, t).ravel() for name, (onehot, a) in graphs.items()}).T).to_numpy()
         else:
-            # Self loops are added to counts, so they must be raw rather than proportions
-            m = raw
+            m = prepared
         m = m.reshape(len(m), len(labels), len(labels))
         distance = _random_walk_distance if metric == "random_walk" else _npmi_distance
         dist = lambda i, j: distance(m[i], m[j])
@@ -114,13 +133,25 @@ def _js(p, q):
     return np.sqrt(np.maximum(js, 0))
 
 
+def _prepare_counts(c, self_loops, unit_diagonal, transform):
+    """Connection counts with self loops, scaled to a unit diagonal and transformed, as requested."""
+    if self_loops or unit_diagonal:
+        c = c + np.eye(len(c))
+    if unit_diagonal:
+        d = np.sqrt(np.diag(c))
+        c = c / np.outer(d, d)
+    if transform == "log2":
+        c = np.log2(1 + c)
+    return c
+
+
 def _random_walk_distance(a, b):
     """Mean sqrt JS between labels' next-step distributions, weighted by label share.
 
-    a and b are raw connection counts. One self loop per label makes every
-    row a distribution, so labels absent from a sample are absorbing states.
+    a and b are connection counts with one self loop per label already added
+    (see _prepare_counts), which makes every row a distribution, so labels
+    absent from a sample are absorbing states.
     """
-    a, b = a + np.eye(len(a)), b + np.eye(len(b))
     ra, rb = a.sum(axis=1), b.sum(axis=1)
     weights = (ra / ra.sum() + rb / rb.sum()) / 2
     return np.average(_js(a / ra[:, None], b / rb[:, None]), weights=weights)
