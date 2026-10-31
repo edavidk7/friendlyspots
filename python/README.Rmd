@@ -92,6 +92,16 @@ arranged.
     common the two labels are, so rare labels' noisy values count less. It
     compares the neighbors of labels present in both samples, including
     neighbors only one of them has.
+  - `"moran"`: compares how far each pair of labels' joins (touching spots)
+    are from what random placement of the sample's own labels on its own spots
+    would give, as Moran's join-count z-scores, by the angle between samples'
+    z-score vectors. Conditions on composition and on the spots' layout, and
+    doesn't depend on sample size. Unrelated samples score about 0.5, opposite
+    ones 0.
+- `exact_tail=True`: for `"moran"`, score label pairs with fewer than 5
+  expected joins by their exact tail probability rather than a normal
+  approximation, so a chance join between two spots of a rare label doesn't
+  count as a large deviation.
 
 ### How the metrics work
 
@@ -207,6 +217,47 @@ $$d(a, b) = \frac{1}{2} \sqrt{\frac{\sum_{i \in R, j \in K} \bar p_i \bar p_j \l
 
 NPMI differences lie in $[-2, 2]$, so the factor $\frac{1}{2}$ keeps $d$ in
 $[0, 1]$. The similarity is $1 - d(a, b)$, or 0 if $R$ is empty.
+
+#### `"moran"`
+
+For labels $a \le b$, the join count $J_{ab}$ is the number of edges joining a
+spot of label $a$ to one of label $b$: $J_{ab} = C_{ab}$ for $a \ne b$, and
+$J_{aa} = C_{aa} / 2$, as $C$ counts each edge from both ends. Moran's (1948)
+non-free null places the sample's own labels on its own spots uniformly at
+random, keeping the number of spots $n_a$ of each label. With $n$ spots, $m$
+edges, $d_p$ the number of neighbors of spot $p$, $k_2 = \sum_p d_p (d_p - 1)$
+the ordered pairs of distinct edges sharing a spot, and the falling factorial
+$x^{(r)} = x (x - 1) \cdots (x - r + 1)$, the mean and second moment of a join
+count are (Cliff & Ord 1981)
+
+$$E[J_{aa}] = m \frac{n_a^{(2)}}{n^{(2)}}, \qquad E[J_{aa}^2] = E[J_{aa}] + k_2 \frac{n_a^{(3)}}{n^{(3)}} + \left(m (m - 1) - k_2\right) \frac{n_a^{(4)}}{n^{(4)}},$$
+
+$$E[J_{ab}] = 2 m \frac{n_a n_b}{n^{(2)}}, \qquad E[J_{ab}^2] = E[J_{ab}] + k_2 \frac{n_a n_b (n_a + n_b - 2)}{n^{(3)}} + 4 \left(m (m - 1) - k_2\right) \frac{n_a^{(2)} n_b^{(2)}}{n^{(4)}}.$$
+
+$E[J^2]$ sums over ordered pairs of edges: an edge with itself ($m$ pairs, 2
+spots), two edges sharing a spot ($k_2$ pairs, 3 spots) and two disjoint edges
+(4 spots), each with the probability that those spots get the required labels.
+With $\mathrm{Var}(J) = E[J^2] - E[J]^2$, each label pair gets the z-score
+
+$$z_{ab} = \frac{J_{ab} - E[J_{ab}]}{\sqrt{\mathrm{Var}(J_{ab})}},$$
+
+positive when $a$ and $b$ touch more than random placement predicts and
+negative when less, whatever the composition. Samples $u$ and $v$ are compared
+by the angle between their vectors $\mathbf{z}$ of all pairs $a \le b$:
+
+$$\mathrm{sim}(u, v) = 1 - \frac{1}{\pi} \arccos \frac{\mathbf{z}_u \cdot \mathbf{z}_v}{\lVert \mathbf{z}_u \rVert \, \lVert \mathbf{z}_v \rVert}.$$
+
+The same arrangement on a larger sample gives z-scores larger by about
+$\sqrt{m}$, which the angle ignores, and no other samples are involved. With
+`pools`, observed joins, means and variances are each summed over a pool's
+samples before standardizing.
+
+When a pair expects few joins, $J$ is close to Poisson, and the normal z-score
+overstates deviations: two touching spots of a label with 2 spots in a section
+of $n = 3000$ expect $E \approx 6 / n$ joins, giving $z \approx 22$, as much as
+a large real pattern. With `exact_tail=True`, pairs with $E < 5$ instead get
+$z = \Phi^{-1}\left(P(J' < J) + \tfrac{1}{2} P(J' = J)\right)$ for $J' \sim
+\mathrm{Poisson}(E)$, about 3.1 in this example.
 
 ### Benchmarks
 

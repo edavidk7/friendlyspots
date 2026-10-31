@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 
 from friendlyspots import spatial_similarity
-from friendlyspots.similarity import _npmi_distance, _prepare_counts
+from friendlyspots.similarity import _graph, _join_moments, _join_z, _npmi_distance, _prepare_counts
 
 SAMPLES = {
     "A": pd.DataFrame({"array_row": [0, 0, 1], "array_col": [0, 2, 1], "label": ["a", "b", "a"]}),
@@ -87,7 +87,7 @@ def test_pools():
     assert_sim(sim, 0, 1 - np.sqrt(6) / np.sqrt(38), 1 - 4 / np.sqrt(38))
 
 
-@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat"])
+@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat", "moran"])
 def test_requires_normalize(metric):
     with pytest.raises(ValueError, match="requires normalize=True"):
         spatial_similarity(SAMPLES, normalize=False, metric=metric)
@@ -164,7 +164,7 @@ def test_composition_metrics_identical_samples(metric):
     np.testing.assert_allclose(sim.to_numpy(), np.ones((2, 2)))
 
 
-@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat"])
+@pytest.mark.parametrize("metric", ["random_walk", "npmi_heat", "moran"])
 def test_composition_metrics_no_connections(metric):
     """Samples with no neighboring spots yield NA."""
     sim = spatial_similarity(SAMPLES, metric=metric)
@@ -211,6 +211,7 @@ def rotate60(sample):
     ("euclidean", {}), ("random_walk", {}), ("npmi_heat", {}),
     ("euclidean", {"unit_diagonal": True, "transform": "log2"}),
     ("random_walk", {"unit_diagonal": True, "transform": "log2"}),
+    ("moran", {}), ("moran", {"exact_tail": True}),
 ])
 def test_alignment_free(metric, options):
     """Rotating, mirroring or reordering a sample's spots on the grid doesn't change its similarities."""
@@ -255,6 +256,64 @@ def test_unit_diagonal_and_transform_options():
         spatial_similarity(pair, transform="log10")
     with pytest.raises(ValueError, match="doesn't compare"):
         spatial_similarity(pair, metric="npmi_heat", unit_diagonal=True)
+
+
+def test_join_moments_exact():
+    """Join count means and variances match all arrangements of the labels on a small graph."""
+    import itertools
+    spots = pd.DataFrame({"array_row": [0, 0, 0, 1, 1, 1], "array_col": [0, 2, 4, 1, 3, 5]})
+    labels = ["a", "b", "c"]
+    joins = []
+    for arrangement in set(itertools.permutations("aabbcc")):
+        onehot, a = _graph(spots.assign(label=arrangement), labels)
+        joins.append(_join_moments(onehot, a)[0])
+    onehot, a = _graph(spots.assign(label=list("aabbcc")), labels)
+    _, mean, var = _join_moments(onehot, a)
+    np.testing.assert_allclose(mean, np.mean(joins, axis=0))
+    np.testing.assert_allclose(var, np.var(joins, axis=0))
+
+
+def test_join_z_exact_tail():
+    """One chance join between two spots of a rare label is a huge deviation for a normal z, not for the exact tail."""
+    # Two touching spots of a label in a section of about 3000 spots: about 6 / 3000 joins expected
+    obs, mean, var = np.array([1.0]), np.array([0.002]), np.array([0.002])
+    np.testing.assert_allclose(_join_z(obs, mean, var, False), 0.998 / np.sqrt(0.002))
+    np.testing.assert_allclose(_join_z(obs, mean, var, True), 3.09, atol=0.01)
+    # Far more joins than expected stay a large deviation, rather than being capped
+    assert _join_z(np.array([40.0]), np.array([3.6]), np.array([3.6]), True)[0] > 10
+
+
+def test_moran_doesnt_depend_on_other_samples():
+    """moran scores a pair the same whatever other samples are compared."""
+    a, b, c = hexagon(), hexagon(radius=6), hexagon(radius=4)
+    pair = spatial_similarity({"A": a, "B": b}, metric="moran")
+    trio = spatial_similarity({"A": a, "B": b, "C": c.assign(label=c["label"].replace({"a": "e"}))}, metric="moran")
+    assert 0 < pair.loc["A", "B"] < 1
+    np.testing.assert_allclose(trio.loc["A", "B"], pair.loc["A", "B"])
+
+
+def test_moran_identical_samples_and_pools():
+    """moran gives identical samples 1, and single-sample pools match the samples.
+
+    The small fixtures above are too symmetric for moran: every arrangement of
+    their labels gives the same joins, so there's nothing to compare.
+    """
+    a, b = hexagon(), hexagon(radius=6)
+    sim = spatial_similarity({"A": a, "A again": a}, metric="moran")
+    np.testing.assert_allclose(sim.to_numpy(), 1)
+    sim = spatial_similarity({"A": a, "B": b}, metric="moran")
+    single = spatial_similarity({"A": a, "B": b}, metric="moran", pools={"A": ["A"], "B": ["B"]})
+    pd.testing.assert_frame_equal(single, sim)
+    pooled = spatial_similarity({"A": a, "B": b}, metric="moran", pools={"AB": ["A", "B"], "A": ["A"]})
+    assert 0 < pooled.loc["AB", "A"] < 1
+
+
+def test_moran_options():
+    pair = {"A": SAMPLES["A"], "B": SAMPLES["B"]}
+    with pytest.raises(ValueError, match="exact_tail is only used with metric='moran'"):
+        spatial_similarity(pair, metric="random_walk", exact_tail=True)
+    with pytest.raises(ValueError, match="doesn't compare"):
+        spatial_similarity(pair, metric="moran", unit_diagonal=True)
 
 
 def test_pig_esophagus_paper():

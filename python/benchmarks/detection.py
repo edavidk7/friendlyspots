@@ -174,6 +174,8 @@ METHODS = {
     "euclidean": lambda a, b: np.linalg.norm(np.subtract(*contact_proportions([a, b]))),
     "random_walk": lambda a, b: 1 - spatial_similarity({"a": a, "b": b}, metric="random_walk").loc["a", "b"],
     "npmi_heat t=4": lambda a, b: 1 - spatial_similarity({"a": a, "b": b}, metric="npmi_heat", t=4).loc["a", "b"],
+    "moran": lambda a, b: 1 - spatial_similarity({"a": a, "b": b}, metric="moran").loc["a", "b"],
+    "moran, exact tail": lambda a, b: 1 - spatial_similarity({"a": a, "b": b}, metric="moran", exact_tail=True).loc["a", "b"],
     "rw, unit diagonal": lambda a, b: 1 - spatial_similarity(
         {"a": a, "b": b}, metric="random_walk", unit_diagonal=True).loc["a", "b"],
     "rw, unit diag + log2": lambda a, b: 1 - spatial_similarity(

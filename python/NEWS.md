@@ -6,6 +6,10 @@
     own total, discounting how common each label is.
   * `"npmi_heat"` compares how much more or less often labels are near each
     other than their abundance predicts, over a neighborhood set by `t`.
+  * `"moran"` compares how far each pair of labels' joins are from random
+    placement of the sample's own labels, as Moran's join-count z-scores, by
+    the angle between samples' z-score vectors. `exact_tail=True` uses exact
+    tail probabilities for label pairs with few expected joins.
 * New `unit_diagonal` and `transform` arguments change connection counts
   before comparing them: `unit_diagonal=True` scales them to
   C_ij / sqrt(C_ii C_jj), removing how much of each label there is, and
